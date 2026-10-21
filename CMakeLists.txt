@@ -74,15 +74,14 @@ if(ENABLE_VK_SHADERS)
     set(SLANGVK_BUILD_TESTS OFF)    # the upstream suite runs in its own repo
     set(SLANGVK_BUILD_EXAMPLES OFF)
     set(SLANGVK_BUILD_SHARED OFF)   # single static link into each game
-    # Pinned by content hash, not by a mutable release tag: this is the
-    # archive of the exact commit the M4.05 milestone tag points at
-    # (fa65b6d5 — 26/26 ctest, byte-exact goldens), fetched by URL and
-    # verified by SHA256 at configure time. A tag can be re-pointed (or
-    # its archive regenerated) upstream; this pin cannot drift. To bump,
-    # swap in the new archive URL plus its sha256 — always deliberate.
+    # Pinned by immutable commit hash, not by a mutable release tag: the
+    # exact commit the M4.07 milestone tag points at (d176d1b — SPIR-V
+    # cache hooks, PERF-09 render path, SEC-07 C API validation; upstream
+    # suite green). A tag can be re-pointed upstream; this hash cannot
+    # drift. To bump, swap in the new full hash — always deliberate.
     FetchContent_Declare(libslang-vk
     GIT_REPOSITORY https://github.com/VTSTech/libslang-vk.git
-    GIT_TAG 5b72331117408c3a38569e09862e387b5ed4f51a # M4.07 Pre-Release
+    GIT_TAG d176d1bfa15e01b84fa5e40d5a3700e1de824b86 # M4.07
     )
     FetchContent_MakeAvailable(libslang-vk)
     # The library's targets require C++23 (its scope sets it for its own

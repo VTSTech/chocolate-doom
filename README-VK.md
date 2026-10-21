@@ -39,7 +39,8 @@ off (or on any failure), Chocolate Doom behaves exactly like upstream.
 
 At build time CMake fetches a pinned copy of libslang-vk via FetchContent —
 not by release tag but by immutable commit hash: the exact commit the
-current `M4.06` release tag points at (`09068b25`), named in
+current `M4.07` milestone points at (`d176d1b` — the SPIR-V cache hooks,
+the allocation-free render path and the C API hardening), named in
 `CMakeLists.txt`. A tag can be re-pointed upstream; a commit hash cannot.
 That in turn fetches glslang 16.6, Vulkan-Headers and volk.
 `ENABLE_VK_SHADERS=OFF` builds the stub path instead — no fetches,
@@ -229,6 +230,33 @@ The F11 aspect toggle composes with it (base follows the feed: 640×480 ↔
 640×400 ↔ 712×400), and the overlay's mode row always shows the live
 canvas.
 
+## Shader cache (SPIR-V disk cache)
+
+Compiling a preset is the expensive part of startup — glslang runs on
+every pass, and royale-class presets take seconds. Since libslang-vk
+M4.07 the library provides a *content key* per pass (a digest of the
+exact GLSL handed to glslang plus the compiler's version and target)
+and calls back into the host for the compiled bytes; this fork stores
+them in `<configdir>/shader-cache/` and serves them back on later runs.
+The startup log says which way each pass went:
+
+```
+# first run with a preset (compiles, stores):
+I_VK: SPIR-V cache /home/user/.local/share/chocolate-doom/shader-cache/ — 0 passes from cache, 3 compiled
+# every later run (bytes served from disk):
+I_VK: SPIR-V cache /home/user/.local/share/chocolate-doom/shader-cache/ — 3 passes from cache, 0 compiled
+```
+
+Invalidation is entirely content-driven: the key covers the preset, its
+`#include` graph and the library's own translation semantics, so editing
+a shader or bumping the libslang-vk pin simply produces new keys — there
+is no version number to bump and nothing can go stale. Deleting the
+directory is always safe (the next run just recompiles). Every store is
+write-to-temp + rename and every load is validated (magic, sizes, exact
+file length), so a corrupt or half-written entry is simply a miss — the
+cache can never break a preset load. No configuration: it is on whenever
+the config directory is writable.
+
 ## Debug aids
 
 `-vkcapture <n>` reads back the n-th presented frame straight off the
@@ -252,14 +280,35 @@ run produces no output.
 
 Every failure path — no Vulkan loader, device creation refused, the preset
 file missing or failing to parse — prints one explanatory line and drops
-back to the classic SDL2 renderer for that run. A failure *after* the
-chain is live (device lost, render error) is fatal with the library's
-message, via `I_Error`. The games' own sources stay C99 throughout.
+back to the classic SDL2 renderer for that run.
 
-## Validation performed (2026-10-21; v0.1.1-vk, base-resolution at v0.2.0, hotkeys + capture fix at v0.2.1)
+A **device lost** event (driver reset, Windows TDR) once the chain is
+live is no longer fatal: the library rebuilds its side (device, the
+preset's LUT textures, the chain — libslang-vk M4.06) and the presenter
+rebuilds its own (swapchain, views, semaphore, entry points, input
+image), drops the frame it was on and carries on with the next; a
+`Vulkan device lost — recovered` flash confirms it in the overlay. The
+loss is detected wherever it surfaces first — inside the chain render
+or on the frame upload — with the same recovery. Only a recovery that
+itself fails (broken driver, no replacement device) is fatal, via
+`I_Error` with the library's message. The games' own sources stay C99
+throughout.
+
+## Validation performed (2026-10-21; v0.1.1-vk, base-resolution at v0.2.0, hotkeys + capture fix at v0.2.1, M4.07 pin + SPIR-V cache + device-lost recovery at v0.3.0)
 
 - libslang-vk M4.05 standalone: 18/18 ctest on lavapipe (incl. the M4
   swapchain-presentation test and the C API test).
+- M4.07 pin bump (`d176d1b`): the c.h surface is purely additive over
+  the previous pin (audited by diff) — SPIR-V cache hooks, PERF-09
+  allocation-free render path, SEC-07 C API validation. Both game build
+  variants (ENABLE_VK_SHADERS on/off) compile clean under
+  `-Wall -Wextra` against the new headers.
+- SPIR-V disk cache: 45/45 unit checks (`scripts/test_vk_cache.c`) —
+  write/read round trip, overwrite, serial arena reuse, corrupt magic /
+  truncated file / lying size header rejected as misses, path-traversal
+  and malformed keys refused before the filesystem, zero-blob writes
+  refused, and the on-disk layout (magic + LE32 sizes) pinned byte by
+  byte.
 - Full game smoke on lavapipe (llvmpipe 19.1.7) under Xvfb: freedoom1.wad,
   `demo1` timedemo through the chain — 1-pass preset at ~306 fps, 2-pass
   at ~284 fps, frame 240 captured via `-vkcapture`, differential check

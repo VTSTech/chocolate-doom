@@ -48,6 +48,7 @@
 #include "i_video.h"
 #include "i_video_vk.h"
 #include "i_overlay.h"
+#include "i_vk_cache.h"
 #include "m_argv.h"
 #include "m_misc.h"
 
@@ -658,6 +659,59 @@ static void EnsureInputImage(void)
     }
 }
 
+// ------------------------------------------------------------------
+// Device-lost recovery (libslang-vk M4.06). A lost VkDevice (driver
+// reset, TDR on Windows) takes every object created on it — the
+// library's chain, the preset's LUT textures and the input image
+// included. The library rebuilds its own side (Chain::render's
+// automatic path when the loss surfaces inside a render, or the silent
+// RefreshAfterDeviceChange after a host-driven Device::recover); what
+// it cannot rebuild is this file's side: the swapchain, its views, the
+// acquire semaphore and the device-level entry points resolved for the
+// old VkDevice.
+// ------------------------------------------------------------------
+
+// Drop this file's swapchain-side objects WITHOUT destroying them: the
+// VkDevice that owned them is gone, and destroying through the
+// replacement device would be invalid. The driver released everything
+// alongside the old device.
+static void ForgetSwapchainObjects(void)
+{
+    memset(vk_swap_views, 0, sizeof(vk_swap_views));
+    vk_swap_image_count = 0;
+    vk_swapchain = VK_NULL_HANDLE;
+    vk_acquire_sem = VK_NULL_HANDLE;    // died with the device too
+}
+
+// Host-side half of the recovery: re-fetch the (new) device handles,
+// re-resolve the device-level entry points and re-create the input
+// image. The swapchain is deliberately NOT rebuilt here — the next
+// I_VK_FinishUpdate's swapchain guard does that, so a window that is
+// minimized mid-recovery keeps retrying instead of failing. The caller
+// drops the current frame; the next one renders normally.
+static boolean RecoverHostObjects(void)
+{
+    if (slangvk_device_get_handles(vk_device, &vk_instance, &vk_physical,
+                                   &vk_ldevice, &vk_queue, &vk_family) != SLANGVK_OK)
+    {
+        return false;
+    }
+    if (!LoadVulkanFunctions())          // new VkDevice: re-resolve
+    {
+        return false;
+    }
+    ForgetSwapchainObjects();
+    if (vk_input != NULL)
+    {
+        // CPU object only — its handles were already released by the
+        // library's release-before-replacement registry.
+        slangvk_image_destroy(vk_input);
+        vk_input = NULL;
+    }
+    EnsureInputImage();                  // fresh image on the new device
+    return true;
+}
+
 // Palette-LUT-expand the frame into the staging buffer at the base size.
 // The aspect stretches happen first in row/column space (6:5 rowmap for
 // 4:3, 320->356 colmap for 16:9); the base upscale then duplicates each
@@ -708,8 +762,30 @@ static void ExpandFrame(void)
         }
     }
 
-    if (slangvk_image_update(vk_input, vk_staging, bytes) != SLANGVK_OK)
     {
+        slangvk_result ur = slangvk_image_update(vk_input, vk_staging, bytes);
+
+        if (ur == SLANGVK_OK)
+        {
+            return;
+        }
+        if (ur == SLANGVK_ERR_VK_DEVICE_LOST)
+        {
+            // The loss surfaced on this upload submit, before any chain
+            // work — nothing has been recovered yet, so drive it here:
+            // recover the library device, then rebuild our objects. The
+            // chain notices the generation change and rebuilds itself
+            // silently on the next render (RefreshAfterDeviceChange).
+            printf("I_VK: Vulkan device lost during upload — recovering\n");
+            if (slangvk_device_recover(vk_device) == SLANGVK_OK
+                && RecoverHostObjects())
+            {
+                I_OverlayFlash("Vulkan device lost — recovered");
+                return;             // retry from the top next frame
+            }
+            I_Error("I_VK: device lost; recovery failed: %s",
+                    slangvk_last_error());
+        }
         I_Error("I_VK: slangvk_image_update failed: %s", slangvk_last_error());
     }
 }
@@ -880,9 +956,13 @@ void I_VK_FinishUpdate(void)
         }
     }
 
-    // Extent drift (fullscreen toggles, DPI changes).
+    // Extent drift (fullscreen toggles, DPI changes) — and the retry
+    // hook after a device-lost recovery: a NULL swapchain (everything
+    // was dropped in ForgetSwapchainObjects) must never reach
+    // vkAcquireNextImageKHR.
     SDL_Vulkan_GetDrawableSize(screen, &dw, &dh);
-    if ((uint32_t) dw != vk_swap_extent.width
+    if (vk_swapchain == VK_NULL_HANDLE
+        || (uint32_t) dw != vk_swap_extent.width
         || (uint32_t) dh != vk_swap_extent.height)
     {
         if (!RecreateSwapchain())
@@ -900,6 +980,22 @@ void I_VK_FinishUpdate(void)
     {
         RecreateSwapchain();
         return;
+    }
+    if (r == VK_ERROR_DEVICE_LOST)
+    {
+        // The device died between frames (driver reset, TDR). Nothing
+        // has been recovered yet — drive it here, same as the upload
+        // path: the library rebuilds its device, we rebuild our objects,
+        // the chain refreshes itself on the next render.
+        printf("I_VK: Vulkan device lost at acquire — recovering\n");
+        if (slangvk_device_recover(vk_device) == SLANGVK_OK
+            && RecoverHostObjects())
+        {
+            I_OverlayFlash("Vulkan device lost — recovered");
+            return;             // retry from the top next frame
+        }
+        I_Error("I_VK: device lost; recovery failed: %s",
+                slangvk_last_error());
     }
     if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR)
     {
@@ -929,9 +1025,33 @@ void I_VK_FinishUpdate(void)
     fi.frame_delta_us = (float) delta_us;
     fi.frame_direction = 1;
 
-    if (slangvk_chain_render_swapchain(vk_chain, &in, &out, &fi) != SLANGVK_OK)
     {
-        I_Error("I_VK: chain render failed: %s", slangvk_last_error());
+        slangvk_result rr =
+            slangvk_chain_render_swapchain(vk_chain, &in, &out, &fi);
+
+        if (rr == SLANGVK_ERR_VK_DEVICE_LOST)
+        {
+            // The M4.06 automatic path: the library already rebuilt its
+            // device, the preset's LUT textures and the chain — the
+            // error means OUR objects died with the old VkDevice.
+            // Recover them, drop this frame; the next one (swapchain
+            // guard above) renders normally.
+            printf("I_VK: Vulkan device lost — recovered by libslang-vk, "
+                   "rebuilding presenter\n");
+            if (!RecoverHostObjects())
+            {
+                I_Error("I_VK: device-lost recovery failed: %s",
+                        slangvk_last_error());
+            }
+            I_OverlayFlash("Vulkan device lost — recovered");
+            return;
+        }
+        if (rr != SLANGVK_OK)
+        {
+            // Includes DEVICE_LOST_RECOVERY_FAILED: the device is gone
+            // and the library could not rebuild it — nothing left.
+            I_Error("I_VK: chain render failed: %s", slangvk_last_error());
+        }
     }
 
     if (vk_capture_frame > 0 && (int) vk_frame_count == vk_capture_frame - 1)
@@ -1077,6 +1197,54 @@ void I_VK_ShutdownGraphics(void)
         I_VideoBuffer = NULL;
     }
     vk_active = false;
+}
+
+// ------------------------------------------------------------------
+// SPIR-V disk cache (libslang-vk M4.07 "cache enabler"): the library
+// computes a per-pass content key and calls back for the bytes; the
+// i_vk_cache module owns the bytes on disk.
+// ------------------------------------------------------------------
+
+// Hits / compiles across this preset load, for the startup log (a store
+// callback fires exactly once per pass the library had to compile; a
+// load hit skips the glslang compile for that pass).
+static int vk_cache_hits = 0;
+static int vk_cache_stores = 0;
+
+// The library copies the blobs immediately after the callback returns
+// (c.h bridges them into its own PassSpirv) and the callbacks are
+// strictly serial — one per pass, on this thread — so VK_CacheRead's
+// reusable arena is all the lifetime they need.
+static int VK_SpirvCacheLoad(const char *key, slangvk_spirv *out,
+                             void *user_data)
+{
+    (void) user_data;
+
+    if (out == NULL)
+    {
+        return 0;
+    }
+    if (VK_CacheRead(key, &out->vertex, &out->vertex_size,
+                           &out->fragment, &out->fragment_size))
+    {
+        ++vk_cache_hits;
+        return 1;
+    }
+    return 0;
+}
+
+static void VK_SpirvCacheStore(const char *key, const slangvk_spirv *spirv,
+                               void *user_data)
+{
+    (void) user_data;
+
+    if (spirv == NULL)
+    {
+        return;
+    }
+    ++vk_cache_stores;
+    VK_CacheWrite(key, spirv->vertex, spirv->vertex_size,
+                        spirv->fragment, spirv->fragment_size);
 }
 
 // ------------------------------------------------------------------
@@ -1234,13 +1402,29 @@ boolean I_VK_AttemptGraphics(void)
     }
 
     // 7) Preset — the friendly failure point (bad path / parse error).
-    if (slangvk_preset_load(vk_device, shader_preset, NULL, &vk_preset) != SLANGVK_OK)
+    //    The SPIR-V disk cache (libslang-vk M4.07) keys every pass by a
+    //    digest of the exact GLSL glslang sees, so a warm start skips
+    //    the compiles entirely — seconds to milliseconds on
+    //    royale-class presets — and edits to the preset, its includes
+    //    or the library itself land as new keys automatically: nothing
+    //    can go stale, and deleting the directory is always safe.
     {
-        fprintf(stderr, "I_VK: failed to load preset '%s': %s\n",
-                shader_preset, slangvk_last_error());
-        SetFallbackReason("preset failed to load");
-        I_VK_ShutdownGraphics();
-        return false;
+        slangvk_preset_options po;
+
+        memset(&po, 0, sizeof(po));
+        if (VK_CacheInit())
+        {
+            po.spirv_cache.load = VK_SpirvCacheLoad;
+            po.spirv_cache.store = VK_SpirvCacheStore;
+        }
+        if (slangvk_preset_load(vk_device, shader_preset, &po, &vk_preset) != SLANGVK_OK)
+        {
+            fprintf(stderr, "I_VK: failed to load preset '%s': %s\n",
+                    shader_preset, slangvk_last_error());
+            SetFallbackReason("preset failed to load");
+            I_VK_ShutdownGraphics();
+            return false;
+        }
     }
     slangvk_preset_pass_count(vk_preset, &pass_count);
     vk_pass_count = (int) pass_count;
@@ -1284,6 +1468,12 @@ boolean I_VK_AttemptGraphics(void)
     {
         printf("I_VK: libslang-vk active — '%s' (%u passes)\n",
                shader_preset, pass_count);
+    }
+    if (VK_CacheDir()[0] != '\0')
+    {
+        printf("I_VK: SPIR-V cache %s — %d pass%s from cache, %d compiled\n",
+               VK_CacheDir(), vk_cache_hits,
+               vk_cache_hits == 1 ? "" : "es", vk_cache_stores);
     }
     if (vk_base_mult > 1)
     {
