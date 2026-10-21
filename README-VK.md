@@ -37,10 +37,12 @@ off (or on any failure), Chocolate Doom behaves exactly like upstream.
 - SDL2 ≥ 2.0.14 with the `SDL_WINDOW_VULKAN` path (any 2.24+ is fine;
   2.32's window-aware Vulkan API is used when present).
 
-At build time CMake fetches a pinned copy of libslang-vk (tag `M4.05`)
-via FetchContent; that in turn fetches glslang 16.6, Vulkan-Headers and
-volk. `ENABLE_VK_SHADERS=OFF` builds the stub path instead — no fetches,
-no C++, upstream-identical behavior.
+At build time CMake fetches a pinned copy of libslang-vk via FetchContent —
+not by release tag but by content hash: the tarball of the exact commit
+`M4.05` points at (`fa65b6d5`), verified by SHA256 at configure time (see
+`CMakeLists.txt`; tags are mutable, hashes are not). That in turn fetches
+glslang 16.6, Vulkan-Headers and volk. `ENABLE_VK_SHADERS=OFF` builds the
+stub path instead — no fetches, no C++, upstream-identical behavior.
 
 ## Building
 
