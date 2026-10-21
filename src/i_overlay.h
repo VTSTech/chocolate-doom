@@ -23,6 +23,11 @@ extern int vkstats;
 // Toggle the overlay at runtime (Scroll Lock, from I_GetEvent).
 void I_OverlayToggle(void);
 
+// Show a short-lived message row in the overlay box (2 seconds) — the
+// on-screen feedback for the PrintScreen screenshot and F12 base-cycle
+// hotkeys, so the action is confirmed without leaving the game.
+void I_OverlayFlash(const char *fmt, ...);
+
 // Draw the overlay into I_VideoBuffer. Called from I_FinishUpdate after
 // V_DrawDiskIcon(), before the frame reaches either presenter.
 void I_OverlayDraw(void);

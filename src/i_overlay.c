@@ -26,6 +26,7 @@
 // -novkstats on the command line control the startup state.
 //
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -161,6 +162,16 @@ static const unsigned char overlay_font[96][8] = {
 
 static Uint64 overlay_last_pc = 0;
 static double overlay_ema_ms = 0.0;
+
+// ------------------------------------------------------------------
+// Transient action feedback (hotkeys): shown as an extra amber row for
+// two seconds after I_OverlayFlash().
+// ------------------------------------------------------------------
+
+#define OVERLAY_FLASH_MS 2000
+
+static char overlay_flash[64];
+static Uint32 overlay_flash_until = 0;
 
 // ------------------------------------------------------------------
 // Text rendering
@@ -352,9 +363,19 @@ void I_OverlayToggle(void)
     vkstats = !vkstats;
 }
 
+void I_OverlayFlash(const char *fmt, ...)
+{
+    va_list ap;
+
+    va_start(ap, fmt);
+    vsnprintf(overlay_flash, sizeof(overlay_flash), fmt, ap);
+    va_end(ap);
+    overlay_flash_until = SDL_GetTicks() + OVERLAY_FLASH_MS;
+}
+
 void I_OverlayDraw(void)
 {
-    char lines[4][64];
+    char lines[5][64];
     const char *device;
     Uint64 pc;
     double dt_ms;
@@ -427,6 +448,13 @@ void I_OverlayDraw(void)
 
         OverlayModeLine(mode, sizeof(mode));
         snprintf(lines[nlines++], sizeof(lines[0]), "-- fps | %s", mode);
+    }
+
+    // Hotkey feedback (screenshot saved / base cycled): one amber row,
+    // clipped like the rest, gone again after two seconds.
+    if (overlay_flash[0] != '\0' && SDL_GetTicks() < overlay_flash_until)
+    {
+        OverlayClip(lines[nlines++], sizeof(lines[0]), overlay_flash);
     }
 
     // --- palette-matched colors (survive gamma and pain tints) ---

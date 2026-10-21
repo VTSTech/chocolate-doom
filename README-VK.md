@@ -80,6 +80,8 @@ point `shader` at any `.slangp` in it; `-shader` accepts any path.
 | `-vkbase <n>` | Shader base resolution: 2/3/4 = doubled/tripled/quadrupled chain input (or a pixel width, e.g. `640`); persists in `shader_base_resolution` |
 | **F11** (in-game) | Toggle 4:3 ↔ raw aspect live; feed re-creates, chain re-derives |
 | **Scroll Lock** (in-game) | Toggle the stats overlay (below) |
+| **PrintScreen** (in-game) | Screenshot: read back the next presented frame to the first free `vkshotNNN.tga` (same channel-correct TGA writer as `-vkcapture`) |
+| **F12** (in-game) | Cycle the shader base resolution 1x → 2x → 3x → 4x → 1x (persists in `shader_base_resolution`) |
 | `-novkstats` | Start with the stats overlay off (`vkstats = 0` persists) |
 | `-vkdebug` | Enable the Vulkan validation layer for this run |
 | `-vkcapture <n>` | Dump the n-th presented frame to `vkframe.tga` |
@@ -120,6 +122,15 @@ file and `-novkstats` control the startup state (default: on). Note
 that Scroll Lock is intercepted by the overlay toggle and therefore
 not available for game bindings while this fork runs.
 
+The hotkeys report back through the overlay itself: **PrintScreen** and
+**F12** each add a short-lived amber feedback row to the box for two
+seconds — `shot vkshot000.tga` / `base 640x480 (2x)` — so the action is
+confirmed without leaving the game. While the Vulkan path is live,
+F11 (vanilla: gamma) is the aspect toggle and F12 (vanilla: demo/net
+spy camera) is the base-resolution cycle; PrintScreen is unused by the
+vanilla game. All three only intercept while the Vulkan path is active
+— with `-novulkan` the keys fall through to the game unchanged.
+
 ## The frame feed and aspect handling
 
 DOOM's software renderer produces 320×200 indexed 8-bit frames — VGA mode
@@ -150,6 +161,13 @@ build/src/chocolate-doom -iwad DOOM.WAD -shader crt/crtglow_lanczos.slangp -vkba
 # Config-file form (persisted like every other VK option):
 #   shader_base_resolution     960
 ```
+
+**F12 cycles the multiplier live** while the game runs — 1x → 2x → 3x
+→ 4x → back to 1x — riding the same re-create-and-re-derive path as the
+F11 aspect toggle: the input image is rebuilt at the new size, the chain
+re-derives every pass FBO from the per-frame input, the overlay's mode
+row updates immediately, and the choice persists through
+`shader_base_resolution` (multiplier form) on exit.
 
 What it does: after the palette LUT expansion (and the 4:3 stretch when
 enabled), the frame is duplicated k-fold — each game pixel becomes an exact
@@ -193,7 +211,18 @@ The F11 aspect toggle composes with it (base follows the feed: 640×480 ↔
 `-vkcapture <n>` reads back the n-th presented frame straight off the
 swapchain image (created with `TRANSFER_SRC` when the surface allows it)
 and writes `vkframe.tga` — a deterministic, tooling-free proof of the full
-present pipeline. `-vkdebug` enables the Khronos validation layer; a clean
+present pipeline. **PrintScreen** does the same readback on demand at
+any moment, writing the first free `vkshot000.tga`, `vkshot001.tga`, …
+(probed with `fopen`, so repeated presses never overwrite).
+
+The readback is a raw `vkCmdCopyImageToBuffer` — the bytes arrive in the
+surface format's native packing, and the writer maps that to TGA's
+B,G,R,A order per the actual `VkFormat` of the swapchain (`B8G8R8A8*`
+is already TGA order and goes out untouched; `R8G8B8A8*` gets R and B
+swapped on the way out). Versions before v0.2.1 swapped unconditionally,
+which red/blue-flipped every capture made on a B8G8R8A8 surface — i.e.
+virtually every real platform — producing the "blue shifted"
+screenshots. `-vkdebug` enables the Khronos validation layer; a clean
 run produces no output.
 
 ## Fallback behavior
@@ -204,7 +233,7 @@ back to the classic SDL2 renderer for that run. A failure *after* the
 chain is live (device lost, render error) is fatal with the library's
 message, via `I_Error`. The games' own sources stay C99 throughout.
 
-## Validation performed (2026-10-21; v0.1.1-vk, base-resolution at v0.2.0)
+## Validation performed (2026-10-21; v0.1.1-vk, base-resolution at v0.2.0, hotkeys + capture fix at v0.2.1)
 
 - libslang-vk M4.05 standalone: 18/18 ctest on lavapipe (incl. the M4
   swapchain-presentation test and the C API test).
@@ -228,6 +257,17 @@ message, via `I_Error`. The games' own sources stay C99 throughout.
   throughput on lavapipe: ~294 / ~211 / ~157 / ~117 fps at 1x / 2x / 3x /
   4x (input-space cost scales with k², as expected).
 - Zero Vulkan validation messages across a full `-vkdebug` session.
+- Hotkeys + capture channel fix (v0.2.1): 25/25 automated checks on
+  lavapipe — `-vkcapture` frame 240 and PrintScreen shots at 1x/2x/3x all
+  verified channel-correct by pixel analysis (status-bar digits pure red,
+  e.g. (196,0,0); thousands of warm overlay glyphs; zero blue-swapped
+  pixels) — the pre-v0.2.1 writer unconditionally swapped R/B and produced
+  blue-shifted TGAs on every B8G8R8A8 surface. F12 cycled 1x→2x→3x live in
+  a real game session (log lines, overlay mode row change measured across
+  50% of the box, flash row visible in the shots), and a graceful quit
+  wrote `shader_base_resolution 3` back to the config file — the choice
+  persists. Hotkeys also exercised under `-vkdebug` with zero validation
+  messages.
 - F11 aspect toggle exercised live mid-demo: feed re-created 320x240 →
   320x200, chain re-derived, and the presentation letterbox switched
   exactly as specified (edge rows content 57.6/74.1 → pure black 0.0/0.0,

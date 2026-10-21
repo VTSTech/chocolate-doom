@@ -451,6 +451,18 @@ void I_GetEvent(void)
                     I_VK_ToggleAspect();
                     break;
                 }
+                if (I_VK_Active()
+                    && sdlevent.key.keysym.scancode == SDL_SCANCODE_PRINTSCREEN)
+                {
+                    I_VK_RequestCapture();
+                    break;
+                }
+                if (I_VK_Active()
+                    && sdlevent.key.keysym.scancode == SDL_SCANCODE_F12)
+                {
+                    I_VK_CycleBase();
+                    break;
+                }
                 if (ToggleFullScreenKeyShortcut(&sdlevent.key.keysym))
                 {
                     I_ToggleFullScreen();

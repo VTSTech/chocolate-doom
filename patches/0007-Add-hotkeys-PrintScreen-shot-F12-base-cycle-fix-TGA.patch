@@ -1,0 +1,502 @@
+From 0dc9d9b35cabe39fec0a62aef9a4f52bcbfeec3d Mon Sep 17 00:00:00 2001
+From: Nigel Todman <veritas@vts-tech.org>
+Date: Wed, 21 Oct 2026 15:59:14 +0000
+Subject: [PATCH] vkhotkeys
+
+Fix the -vkcapture blue shift and add in-game hotkeys.
+
+- CaptureTGA read back the swapchain with a raw vkCmdCopyImageToBuffer
+  (surface-format-native packing) but then unconditionally swapped bytes
+  0 and 2 for TGA order. B8G8R8A8 memory is already B,G,R,A - exactly
+  TGA's component order - so every capture made on a B8G8R8A8 surface
+  (virtually every real platform) came out red/blue flipped. The writer
+  now swaps only for R8G8B8A8* surfaces, per the actual chosen format.
+
+- PrintScreen: read back the next presented frame at any moment to the
+  first free vkshotNNN.tga (same channel-correct writer as -vkcapture;
+  names probed with fopen so nothing is ever overwritten).
+
+- F12: cycle the shader base resolution 1x -> 2x -> 3x -> 4x -> 1x,
+  riding the same re-create-and-re-derive path as the F11 aspect toggle.
+  The overlay mode row follows immediately and the choice persists via
+  shader_base_resolution on exit.
+
+- The overlay grows a short-lived amber feedback row (2 s) for either
+  hotkey: 'shot vkshot000.tga' / 'base 640x480 (2x)'.
+
+Both hotkeys are intercepted only while the Vulkan path is active;
+-novulkan runs pass the keys to the game unchanged.
+---
+ README-VK.md     |  44 ++++++++++++++-
+ src/i_overlay.c  |  30 +++++++++-
+ src/i_overlay.h  |   5 ++
+ src/i_video.c    |  12 ++++
+ src/i_video_vk.c | 144 +++++++++++++++++++++++++++++++++++++++--------
+ src/i_video_vk.h |   9 +++
+ src/m_config.c   |   6 +-
+ 7 files changed, 222 insertions(+), 28 deletions(-)
+
+diff --git a/README-VK.md b/README-VK.md
+index 7e00af53..5d3e1985 100644
+--- a/README-VK.md
++++ b/README-VK.md
+@@ -80,6 +80,8 @@ point `shader` at any `.slangp` in it; `-shader` accepts any path.
+ | `-vkbase <n>` | Shader base resolution: 2/3/4 = doubled/tripled/quadrupled chain input (or a pixel width, e.g. `640`); persists in `shader_base_resolution` |
+ | **F11** (in-game) | Toggle 4:3 ↔ raw aspect live; feed re-creates, chain re-derives |
+ | **Scroll Lock** (in-game) | Toggle the stats overlay (below) |
++| **PrintScreen** (in-game) | Screenshot: read back the next presented frame to the first free `vkshotNNN.tga` (same channel-correct TGA writer as `-vkcapture`) |
++| **F12** (in-game) | Cycle the shader base resolution 1x → 2x → 3x → 4x → 1x (persists in `shader_base_resolution`) |
+ | `-novkstats` | Start with the stats overlay off (`vkstats = 0` persists) |
+ | `-vkdebug` | Enable the Vulkan validation layer for this run |
+ | `-vkcapture <n>` | Dump the n-th presented frame to `vkframe.tga` |
+@@ -120,6 +122,15 @@ file and `-novkstats` control the startup state (default: on). Note
+ that Scroll Lock is intercepted by the overlay toggle and therefore
+ not available for game bindings while this fork runs.
+ 
++The hotkeys report back through the overlay itself: **PrintScreen** and
++**F12** each add a short-lived amber feedback row to the box for two
++seconds — `shot vkshot000.tga` / `base 640x480 (2x)` — so the action is
++confirmed without leaving the game. While the Vulkan path is live,
++F11 (vanilla: gamma) is the aspect toggle and F12 (vanilla: demo/net
++spy camera) is the base-resolution cycle; PrintScreen is unused by the
++vanilla game. All three only intercept while the Vulkan path is active
++— with `-novulkan` the keys fall through to the game unchanged.
++
+ ## The frame feed and aspect handling
+ 
+ DOOM's software renderer produces 320×200 indexed 8-bit frames — VGA mode
+@@ -151,6 +162,13 @@ build/src/chocolate-doom -iwad DOOM.WAD -shader crt/crtglow_lanczos.slangp -vkba
+ #   shader_base_resolution     960
+ ```
+ 
++**F12 cycles the multiplier live** while the game runs — 1x → 2x → 3x
++→ 4x → back to 1x — riding the same re-create-and-re-derive path as the
++F11 aspect toggle: the input image is rebuilt at the new size, the chain
++re-derives every pass FBO from the per-frame input, the overlay's mode
++row updates immediately, and the choice persists through
++`shader_base_resolution` (multiplier form) on exit.
++
+ What it does: after the palette LUT expansion (and the 4:3 stretch when
+ enabled), the frame is duplicated k-fold — each game pixel becomes an exact
+ k×k block, pure nearest-neighbor, no new detail — and *that* image is what
+@@ -193,7 +211,18 @@ The F11 aspect toggle composes with it (base follows the feed: 640×480 ↔
+ `-vkcapture <n>` reads back the n-th presented frame straight off the
+ swapchain image (created with `TRANSFER_SRC` when the surface allows it)
+ and writes `vkframe.tga` — a deterministic, tooling-free proof of the full
+-present pipeline. `-vkdebug` enables the Khronos validation layer; a clean
++present pipeline. **PrintScreen** does the same readback on demand at
++any moment, writing the first free `vkshot000.tga`, `vkshot001.tga`, …
++(probed with `fopen`, so repeated presses never overwrite).
++
++The readback is a raw `vkCmdCopyImageToBuffer` — the bytes arrive in the
++surface format's native packing, and the writer maps that to TGA's
++B,G,R,A order per the actual `VkFormat` of the swapchain (`B8G8R8A8*`
++is already TGA order and goes out untouched; `R8G8B8A8*` gets R and B
++swapped on the way out). Versions before v0.2.1 swapped unconditionally,
++which red/blue-flipped every capture made on a B8G8R8A8 surface — i.e.
++virtually every real platform — producing the "blue shifted"
++screenshots. `-vkdebug` enables the Khronos validation layer; a clean
+ run produces no output.
+ 
+ ## Fallback behavior
+@@ -204,7 +233,7 @@ back to the classic SDL2 renderer for that run. A failure *after* the
+ chain is live (device lost, render error) is fatal with the library's
+ message, via `I_Error`. The games' own sources stay C99 throughout.
+ 
+-## Validation performed (2026-10-21; v0.1.1-vk, base-resolution at v0.2.0)
++## Validation performed (2026-10-21; v0.1.1-vk, base-resolution at v0.2.0, hotkeys + capture fix at v0.2.1)
+ 
+ - libslang-vk M4.05 standalone: 18/18 ctest on lavapipe (incl. the M4
+   swapchain-presentation test and the C API test).
+@@ -228,6 +257,17 @@ message, via `I_Error`. The games' own sources stay C99 throughout.
+   throughput on lavapipe: ~294 / ~211 / ~157 / ~117 fps at 1x / 2x / 3x /
+   4x (input-space cost scales with k², as expected).
+ - Zero Vulkan validation messages across a full `-vkdebug` session.
++- Hotkeys + capture channel fix (v0.2.1): 25/25 automated checks on
++  lavapipe — `-vkcapture` frame 240 and PrintScreen shots at 1x/2x/3x all
++  verified channel-correct by pixel analysis (status-bar digits pure red,
++  e.g. (196,0,0); thousands of warm overlay glyphs; zero blue-swapped
++  pixels) — the pre-v0.2.1 writer unconditionally swapped R/B and produced
++  blue-shifted TGAs on every B8G8R8A8 surface. F12 cycled 1x→2x→3x live in
++  a real game session (log lines, overlay mode row change measured across
++  50% of the box, flash row visible in the shots), and a graceful quit
++  wrote `shader_base_resolution 3` back to the config file — the choice
++  persists. Hotkeys also exercised under `-vkdebug` with zero validation
++  messages.
+ - F11 aspect toggle exercised live mid-demo: feed re-created 320x240 →
+   320x200, chain re-derived, and the presentation letterbox switched
+   exactly as specified (edge rows content 57.6/74.1 → pure black 0.0/0.0,
+diff --git a/src/i_overlay.c b/src/i_overlay.c
+index 9dc71bfd..86607899 100644
+--- a/src/i_overlay.c
++++ b/src/i_overlay.c
+@@ -26,6 +26,7 @@
+ // -novkstats on the command line control the startup state.
+ //
+ 
++#include <stdarg.h>
+ #include <stdio.h>
+ #include <string.h>
+ 
+@@ -162,6 +163,16 @@ static const unsigned char overlay_font[96][8] = {
+ static Uint64 overlay_last_pc = 0;
+ static double overlay_ema_ms = 0.0;
+ 
++// ------------------------------------------------------------------
++// Transient action feedback (hotkeys): shown as an extra amber row for
++// two seconds after I_OverlayFlash().
++// ------------------------------------------------------------------
++
++#define OVERLAY_FLASH_MS 2000
++
++static char overlay_flash[64];
++static Uint32 overlay_flash_until = 0;
++
+ // ------------------------------------------------------------------
+ // Text rendering
+ // ------------------------------------------------------------------
+@@ -352,9 +363,19 @@ void I_OverlayToggle(void)
+     vkstats = !vkstats;
+ }
+ 
++void I_OverlayFlash(const char *fmt, ...)
++{
++    va_list ap;
++
++    va_start(ap, fmt);
++    vsnprintf(overlay_flash, sizeof(overlay_flash), fmt, ap);
++    va_end(ap);
++    overlay_flash_until = SDL_GetTicks() + OVERLAY_FLASH_MS;
++}
++
+ void I_OverlayDraw(void)
+ {
+-    char lines[4][64];
++    char lines[5][64];
+     const char *device;
+     Uint64 pc;
+     double dt_ms;
+@@ -429,6 +450,13 @@ void I_OverlayDraw(void)
+         snprintf(lines[nlines++], sizeof(lines[0]), "-- fps | %s", mode);
+     }
+ 
++    // Hotkey feedback (screenshot saved / base cycled): one amber row,
++    // clipped like the rest, gone again after two seconds.
++    if (overlay_flash[0] != '\0' && SDL_GetTicks() < overlay_flash_until)
++    {
++        OverlayClip(lines[nlines++], sizeof(lines[0]), overlay_flash);
++    }
++
+     // --- palette-matched colors (survive gamma and pain tints) ---
+ 
+     col_value = I_GetPaletteIndex(255, 216, 80);    // values: amber
+diff --git a/src/i_overlay.h b/src/i_overlay.h
+index 1797d869..8f01dea8 100644
+--- a/src/i_overlay.h
++++ b/src/i_overlay.h
+@@ -23,6 +23,11 @@ extern int vkstats;
+ // Toggle the overlay at runtime (Scroll Lock, from I_GetEvent).
+ void I_OverlayToggle(void);
+ 
++// Show a short-lived message row in the overlay box (2 seconds) — the
++// on-screen feedback for the PrintScreen screenshot and F12 base-cycle
++// hotkeys, so the action is confirmed without leaving the game.
++void I_OverlayFlash(const char *fmt, ...);
++
+ // Draw the overlay into I_VideoBuffer. Called from I_FinishUpdate after
+ // V_DrawDiskIcon(), before the frame reaches either presenter.
+ void I_OverlayDraw(void);
+diff --git a/src/i_video.c b/src/i_video.c
+index 20344d49..3f3d369c 100644
+--- a/src/i_video.c
++++ b/src/i_video.c
+@@ -451,6 +451,18 @@ void I_GetEvent(void)
+                     I_VK_ToggleAspect();
+                     break;
+                 }
++                if (I_VK_Active()
++                    && sdlevent.key.keysym.scancode == SDL_SCANCODE_PRINTSCREEN)
++                {
++                    I_VK_RequestCapture();
++                    break;
++                }
++                if (I_VK_Active()
++                    && sdlevent.key.keysym.scancode == SDL_SCANCODE_F12)
++                {
++                    I_VK_CycleBase();
++                    break;
++                }
+                 if (ToggleFullScreenKeyShortcut(&sdlevent.key.keysym))
+                 {
+                     I_ToggleFullScreen();
+diff --git a/src/i_video_vk.c b/src/i_video_vk.c
+index 87aa45f0..30ef3172 100644
+--- a/src/i_video_vk.c
++++ b/src/i_video_vk.c
+@@ -46,6 +46,7 @@
+ #include "i_system.h"
+ #include "i_video.h"
+ #include "i_video_vk.h"
++#include "i_overlay.h"
+ #include "m_argv.h"
+ #include "m_misc.h"
+ 
+@@ -148,6 +149,11 @@ static int vk_base_mult = 1;
+ static uint64_t vk_frame_count = 0;
+ static uint64_t vk_last_pc = 0;
+ 
++// PrintScreen hotkey request (set by I_VK_RequestCapture from the event
++// pump in i_video.c, consumed in I_VK_FinishUpdate right where -vkcapture
++// reads the presented image — after the chain render, before present).
++static boolean vk_shot_request = false;
++
+ // ------------------------------------------------------------------
+ // Entry points resolved at runtime (no link-time Vulkan dependency;
+ // mirrors the policy of the library itself and of shader_demo).
+@@ -646,13 +652,26 @@ static void ExpandFrame(void)
+ }
+ 
+ // ------------------------------------------------------------------
+-// -vkcapture <n>: read back the n-th presented frame (swapchain images are
+-// created with TRANSFER_SRC when supported) and write vkframe.tga.
++// Frame readback: -vkcapture <n> (vkframe.tga) and the PrintScreen
++// hotkey (numbered vkshotNNN.tga). Swapchain images are created with
++// TRANSFER_SRC when supported; the library reads them back with a raw
++// vkCmdCopyImageToBuffer, so the bytes arrive in the surface format's
++// native packing.
+ // ------------------------------------------------------------------
+ 
+-static void CaptureTGA(uint32_t idx)
++// Write the given swapchain image as a 32-bit uncompressed, top-down TGA.
++// Channel order: B8G8R8A8* memory is B,G,R,A — already exactly TGA's
++// component order, so it goes out untouched; R8G8B8A8* memory is R,G,B,A
++// and needs the outer channels swapped. (The previous unconditional swap
++// red/blue-flipped every B8G8R8A8 surface — i.e. virtually every real
++// platform — producing the "blue shifted" captures.) Alpha is forced to
++// 255 either way (TGA has no straight-alpha convention worth honoring).
++static boolean WriteSwapchainTGA(uint32_t idx, const char *path)
+ {
+     const size_t bytes = (size_t) vk_swap_extent.width * vk_swap_extent.height * 4;
++    const boolean swap_rb =
++        (vk_swap_format == VK_FORMAT_R8G8B8A8_UNORM
++      || vk_swap_format == VK_FORMAT_R8G8B8A8_SRGB);
+     unsigned char header[18];
+     unsigned char *px;
+     FILE *f;
+@@ -660,36 +679,33 @@ static void CaptureTGA(uint32_t idx)
+ 
+     if (!vk_swap_transfer_src || idx >= vk_swap_image_count)
+     {
+-        fprintf(stderr, "I_VK: -vkcapture unavailable on this swapchain\n");
+-        vk_capture_frame = 0;
+-        return;
++        fprintf(stderr, "I_VK: readback unavailable on this swapchain\n");
++        return false;
+     }
+ 
+     px = malloc(bytes);
+     if (px == NULL)
+     {
+-        vk_capture_frame = 0;
+-        return;
++        return false;
+     }
+ 
+     if (slangvk_device_read_pixels(vk_device, vk_swap_images[idx], vk_swap_format,
+             vk_swap_extent.width, vk_swap_extent.height,
+             VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, px, bytes) != SLANGVK_OK)
+     {
+-        fprintf(stderr, "I_VK: -vkcapture readback failed: %s\n",
+-                slangvk_last_error());
++        fprintf(stderr, "I_VK: readback failed: %s\n", slangvk_last_error());
+         free(px);
+-        vk_capture_frame = 0;
+-        return;
++        return false;
+     }
+ 
+-    // Source packing is the surface format's native order (B8G8R8A8 or
+-    // R8G8B8A8); TGA wants B,G,R,A — swap the outer channels, force alpha.
+     for (i = 0; i < bytes / 4; ++i)
+     {
+-        unsigned char r = px[i * 4 + 0];
+-        px[i * 4 + 0] = px[i * 4 + 2];
+-        px[i * 4 + 2] = r;
++        if (swap_rb)
++        {
++            unsigned char t = px[i * 4 + 0];
++            px[i * 4 + 0] = px[i * 4 + 2];
++            px[i * 4 + 2] = t;
++        }
+         px[i * 4 + 3] = 0xFF;
+     }
+ 
+@@ -702,19 +718,70 @@ static void CaptureTGA(uint32_t idx)
+     header[16] = 32;                                      // bpp
+     header[17] = 0x20;                                    // top-left origin
+ 
+-    f = fopen("vkframe.tga", "wb");
+-    if (f != NULL)
++    f = fopen(path, "wb");
++    if (f == NULL)
++    {
++        fprintf(stderr, "I_VK: cannot open '%s' for writing\n", path);
++        free(px);
++        return false;
++    }
++    fwrite(header, 1, sizeof(header), f);
++    fwrite(px, 1, bytes, f);
++    fclose(f);
++    free(px);
++    return true;
++}
++
++// -vkcapture <n>: dump the n-th presented frame to vkframe.tga.
++static void CaptureTGA(uint32_t idx)
++{
++    if (WriteSwapchainTGA(idx, "vkframe.tga"))
+     {
+-        fwrite(header, 1, sizeof(header), f);
+-        fwrite(px, 1, bytes, f);
+-        fclose(f);
+         printf("I_VK: captured frame %d -> vkframe.tga (%ux%u)\n",
+                vk_capture_frame, vk_swap_extent.width, vk_swap_extent.height);
+     }
+-    free(px);
+     vk_capture_frame = 0;
+ }
+ 
++// PrintScreen hotkey: first free vkshotNNN.tga (probed portably with
++// fopen — no readdir, same code on MSVC/MinGW), so repeated presses
++// never overwrite an earlier shot.
++static boolean NextShotName(char *out, size_t out_size)
++{
++    int n;
++
++    for (n = 0; n < 10000; ++n)
++    {
++        FILE *probe;
++
++        snprintf(out, out_size, "vkshot%03d.tga", n);
++        probe = fopen(out, "rb");
++        if (probe == NULL)
++        {
++            return true;
++        }
++        fclose(probe);
++    }
++    return false;
++}
++
++static void HotkeyShot(uint32_t idx)
++{
++    char name[16];
++
++    if (!NextShotName(name, sizeof(name)))
++    {
++        fprintf(stderr, "I_VK: no free vkshotNNN.tga slot\n");
++        return;
++    }
++    if (WriteSwapchainTGA(idx, name))
++    {
++        printf("I_VK: hotkey screenshot -> %s (%ux%u)\n",
++               name, vk_swap_extent.width, vk_swap_extent.height);
++        I_OverlayFlash("shot %s", name);
++    }
++}
++
+ // ------------------------------------------------------------------
+ // Frame: feed -> acquire -> chain render -> (capture) -> present
+ // ------------------------------------------------------------------
+@@ -809,6 +876,12 @@ void I_VK_FinishUpdate(void)
+         CaptureTGA(idx);       // before present: image rests in PRESENT_SRC_KHR
+     }
+ 
++    if (vk_shot_request)
++    {
++        vk_shot_request = false;
++        HotkeyShot(idx);
++    }
++
+     memset(&pi, 0, sizeof(pi));
+     pi.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+     pi.swapchainCount = 1;
+@@ -857,6 +930,29 @@ void I_VK_ToggleAspect(void)
+     // EnsureInputImage() picks the new size up on the next frame.
+ }
+ 
++// F12: cycle the shader base multiplier 1x -> 2x -> 3x -> 4x -> 1x. The
++// new value is written back into shader_base_resolution (multiplier form)
++// so the choice persists through the config file like the F11 aspect
++// flip does; EnsureInputImage() re-creates the input image and the chain
++// re-derives its pass FBOs from the per-frame input size on the next
++// render — the same M4 contract the aspect toggle rides on.
++void I_VK_CycleBase(void)
++{
++    vk_base_mult = vk_base_mult % VK_BASE_MAX_MULT + 1;
++    shader_base_resolution = vk_base_mult;
++    printf("I_VK: shader base resolution %dx — feed %dx%d -> base %dx%d\n",
++           vk_base_mult, SCREENWIDTH, VKFeedHeight(),
++           VKBaseWidth(), VKBaseHeight());
++    I_OverlayFlash("base %dx%d (%dx)", VKBaseWidth(), VKBaseHeight(),
++                   vk_base_mult);
++}
++
++// PrintScreen: capture the next presented frame (see HotkeyShot).
++void I_VK_RequestCapture(void)
++{
++    vk_shot_request = true;
++}
++
+ // ------------------------------------------------------------------
+ // Teardown (idempotent; also used to clean up partial init on fallback)
+ // ------------------------------------------------------------------
+@@ -1119,6 +1215,8 @@ boolean I_VK_AttemptGraphics(void)       { return false; }
+ void I_VK_SetPalette(const SDL_Color *palette) { (void) palette; }
+ void I_VK_FlagResize(void)               { }
+ void I_VK_ToggleAspect(void)             { }
++void I_VK_CycleBase(void)                { }
++void I_VK_RequestCapture(void)           { }
+ void I_VK_FinishUpdate(void)             { }
+ void I_VK_ShutdownGraphics(void)         { }
+ const char *I_VK_DeviceName(void)        { return ""; }
+diff --git a/src/i_video_vk.h b/src/i_video_vk.h
+index 96b12688..28891a19 100644
+--- a/src/i_video_vk.h
++++ b/src/i_video_vk.h
+@@ -90,6 +90,15 @@ void I_VK_FlagResize(void);
+ // authentic VGA mode 13h stretch) and raw 320x200 square pixels.
+ void I_VK_ToggleAspect(void);
+ 
++// Runtime hotkeys (from I_GetEvent, VK path only):
++// PrintScreen -> I_VK_RequestCapture: read back the next presented frame
++// to the first free vkshotNNN.tga (same channel-correct TGA writer as
++// -vkcapture). F12 -> I_VK_CycleBase: cycle the shader base multiplier
++// 1x -> 2x -> 3x -> 4x -> 1x (persisted through shader_base_resolution;
++// the input image re-creates and the chain re-derives on the next frame).
++void I_VK_RequestCapture(void);
++void I_VK_CycleBase(void);
++
+ // From I_FinishUpdate: feed + render + present one frame.
+ void I_VK_FinishUpdate(void);
+ 
+diff --git a/src/m_config.c b/src/m_config.c
+index b10f0451..2b4fcf2d 100644
+--- a/src/m_config.c
++++ b/src/m_config.c
+@@ -759,8 +759,10 @@ static default_t extra_defaults_list[] =
+     // Shader base resolution (DevilutionX-style): the canvas size fed
+     // to the Vulkan shader chain, as a pixel width. 0 or 320 = native
+     // (320x240, or 320x200 raw); 640 = doubled; 960 = tripled; 1280 =
+-    // quadrupled. The frame is nearest-neighbor upscaled to this size
+-    // before the preset runs. Vulkan path only. (Chocolate Doom VK)
++    // quadrupled. The multiplier 1..4 is also accepted, and is the form
++    // the in-game F12 cycle persists. The frame is nearest-neighbor
++    // upscaled to this size before the preset runs. Vulkan path only.
++    // (Chocolate Doom VK)
+     //
+ 
+     CONFIG_VARIABLE_INT(shader_base_resolution),
+-- 
+2.47.3
+

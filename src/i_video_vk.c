@@ -46,6 +46,7 @@
 #include "i_system.h"
 #include "i_video.h"
 #include "i_video_vk.h"
+#include "i_overlay.h"
 #include "m_argv.h"
 #include "m_misc.h"
 
@@ -147,6 +148,11 @@ static int vk_base_mult = 1;
 // Frame accounting for slangvk_frame_info.
 static uint64_t vk_frame_count = 0;
 static uint64_t vk_last_pc = 0;
+
+// PrintScreen hotkey request (set by I_VK_RequestCapture from the event
+// pump in i_video.c, consumed in I_VK_FinishUpdate right where -vkcapture
+// reads the presented image — after the chain render, before present).
+static boolean vk_shot_request = false;
 
 // ------------------------------------------------------------------
 // Entry points resolved at runtime (no link-time Vulkan dependency;
@@ -646,13 +652,26 @@ static void ExpandFrame(void)
 }
 
 // ------------------------------------------------------------------
-// -vkcapture <n>: read back the n-th presented frame (swapchain images are
-// created with TRANSFER_SRC when supported) and write vkframe.tga.
+// Frame readback: -vkcapture <n> (vkframe.tga) and the PrintScreen
+// hotkey (numbered vkshotNNN.tga). Swapchain images are created with
+// TRANSFER_SRC when supported; the library reads them back with a raw
+// vkCmdCopyImageToBuffer, so the bytes arrive in the surface format's
+// native packing.
 // ------------------------------------------------------------------
 
-static void CaptureTGA(uint32_t idx)
+// Write the given swapchain image as a 32-bit uncompressed, top-down TGA.
+// Channel order: B8G8R8A8* memory is B,G,R,A — already exactly TGA's
+// component order, so it goes out untouched; R8G8B8A8* memory is R,G,B,A
+// and needs the outer channels swapped. (The previous unconditional swap
+// red/blue-flipped every B8G8R8A8 surface — i.e. virtually every real
+// platform — producing the "blue shifted" captures.) Alpha is forced to
+// 255 either way (TGA has no straight-alpha convention worth honoring).
+static boolean WriteSwapchainTGA(uint32_t idx, const char *path)
 {
     const size_t bytes = (size_t) vk_swap_extent.width * vk_swap_extent.height * 4;
+    const boolean swap_rb =
+        (vk_swap_format == VK_FORMAT_R8G8B8A8_UNORM
+      || vk_swap_format == VK_FORMAT_R8G8B8A8_SRGB);
     unsigned char header[18];
     unsigned char *px;
     FILE *f;
@@ -660,36 +679,33 @@ static void CaptureTGA(uint32_t idx)
 
     if (!vk_swap_transfer_src || idx >= vk_swap_image_count)
     {
-        fprintf(stderr, "I_VK: -vkcapture unavailable on this swapchain\n");
-        vk_capture_frame = 0;
-        return;
+        fprintf(stderr, "I_VK: readback unavailable on this swapchain\n");
+        return false;
     }
 
     px = malloc(bytes);
     if (px == NULL)
     {
-        vk_capture_frame = 0;
-        return;
+        return false;
     }
 
     if (slangvk_device_read_pixels(vk_device, vk_swap_images[idx], vk_swap_format,
             vk_swap_extent.width, vk_swap_extent.height,
             VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, px, bytes) != SLANGVK_OK)
     {
-        fprintf(stderr, "I_VK: -vkcapture readback failed: %s\n",
-                slangvk_last_error());
+        fprintf(stderr, "I_VK: readback failed: %s\n", slangvk_last_error());
         free(px);
-        vk_capture_frame = 0;
-        return;
+        return false;
     }
 
-    // Source packing is the surface format's native order (B8G8R8A8 or
-    // R8G8B8A8); TGA wants B,G,R,A — swap the outer channels, force alpha.
     for (i = 0; i < bytes / 4; ++i)
     {
-        unsigned char r = px[i * 4 + 0];
-        px[i * 4 + 0] = px[i * 4 + 2];
-        px[i * 4 + 2] = r;
+        if (swap_rb)
+        {
+            unsigned char t = px[i * 4 + 0];
+            px[i * 4 + 0] = px[i * 4 + 2];
+            px[i * 4 + 2] = t;
+        }
         px[i * 4 + 3] = 0xFF;
     }
 
@@ -702,17 +718,68 @@ static void CaptureTGA(uint32_t idx)
     header[16] = 32;                                      // bpp
     header[17] = 0x20;                                    // top-left origin
 
-    f = fopen("vkframe.tga", "wb");
-    if (f != NULL)
+    f = fopen(path, "wb");
+    if (f == NULL)
     {
-        fwrite(header, 1, sizeof(header), f);
-        fwrite(px, 1, bytes, f);
-        fclose(f);
+        fprintf(stderr, "I_VK: cannot open '%s' for writing\n", path);
+        free(px);
+        return false;
+    }
+    fwrite(header, 1, sizeof(header), f);
+    fwrite(px, 1, bytes, f);
+    fclose(f);
+    free(px);
+    return true;
+}
+
+// -vkcapture <n>: dump the n-th presented frame to vkframe.tga.
+static void CaptureTGA(uint32_t idx)
+{
+    if (WriteSwapchainTGA(idx, "vkframe.tga"))
+    {
         printf("I_VK: captured frame %d -> vkframe.tga (%ux%u)\n",
                vk_capture_frame, vk_swap_extent.width, vk_swap_extent.height);
     }
-    free(px);
     vk_capture_frame = 0;
+}
+
+// PrintScreen hotkey: first free vkshotNNN.tga (probed portably with
+// fopen — no readdir, same code on MSVC/MinGW), so repeated presses
+// never overwrite an earlier shot.
+static boolean NextShotName(char *out, size_t out_size)
+{
+    int n;
+
+    for (n = 0; n < 10000; ++n)
+    {
+        FILE *probe;
+
+        snprintf(out, out_size, "vkshot%03d.tga", n);
+        probe = fopen(out, "rb");
+        if (probe == NULL)
+        {
+            return true;
+        }
+        fclose(probe);
+    }
+    return false;
+}
+
+static void HotkeyShot(uint32_t idx)
+{
+    char name[16];
+
+    if (!NextShotName(name, sizeof(name)))
+    {
+        fprintf(stderr, "I_VK: no free vkshotNNN.tga slot\n");
+        return;
+    }
+    if (WriteSwapchainTGA(idx, name))
+    {
+        printf("I_VK: hotkey screenshot -> %s (%ux%u)\n",
+               name, vk_swap_extent.width, vk_swap_extent.height);
+        I_OverlayFlash("shot %s", name);
+    }
 }
 
 // ------------------------------------------------------------------
@@ -809,6 +876,12 @@ void I_VK_FinishUpdate(void)
         CaptureTGA(idx);       // before present: image rests in PRESENT_SRC_KHR
     }
 
+    if (vk_shot_request)
+    {
+        vk_shot_request = false;
+        HotkeyShot(idx);
+    }
+
     memset(&pi, 0, sizeof(pi));
     pi.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
     pi.swapchainCount = 1;
@@ -855,6 +928,29 @@ void I_VK_ToggleAspect(void)
            aspect_ratio_correct ? "ON (authentic 4:3)" : "OFF (raw square pixels)",
            SCREENWIDTH, VKFeedHeight(), VKBaseWidth(), VKBaseHeight());
     // EnsureInputImage() picks the new size up on the next frame.
+}
+
+// F12: cycle the shader base multiplier 1x -> 2x -> 3x -> 4x -> 1x. The
+// new value is written back into shader_base_resolution (multiplier form)
+// so the choice persists through the config file like the F11 aspect
+// flip does; EnsureInputImage() re-creates the input image and the chain
+// re-derives its pass FBOs from the per-frame input size on the next
+// render — the same M4 contract the aspect toggle rides on.
+void I_VK_CycleBase(void)
+{
+    vk_base_mult = vk_base_mult % VK_BASE_MAX_MULT + 1;
+    shader_base_resolution = vk_base_mult;
+    printf("I_VK: shader base resolution %dx — feed %dx%d -> base %dx%d\n",
+           vk_base_mult, SCREENWIDTH, VKFeedHeight(),
+           VKBaseWidth(), VKBaseHeight());
+    I_OverlayFlash("base %dx%d (%dx)", VKBaseWidth(), VKBaseHeight(),
+                   vk_base_mult);
+}
+
+// PrintScreen: capture the next presented frame (see HotkeyShot).
+void I_VK_RequestCapture(void)
+{
+    vk_shot_request = true;
 }
 
 // ------------------------------------------------------------------
@@ -1119,6 +1215,8 @@ boolean I_VK_AttemptGraphics(void)       { return false; }
 void I_VK_SetPalette(const SDL_Color *palette) { (void) palette; }
 void I_VK_FlagResize(void)               { }
 void I_VK_ToggleAspect(void)             { }
+void I_VK_CycleBase(void)                { }
+void I_VK_RequestCapture(void)           { }
 void I_VK_FinishUpdate(void)             { }
 void I_VK_ShutdownGraphics(void)         { }
 const char *I_VK_DeviceName(void)        { return ""; }

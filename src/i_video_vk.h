@@ -90,6 +90,15 @@ void I_VK_FlagResize(void);
 // authentic VGA mode 13h stretch) and raw 320x200 square pixels.
 void I_VK_ToggleAspect(void);
 
+// Runtime hotkeys (from I_GetEvent, VK path only):
+// PrintScreen -> I_VK_RequestCapture: read back the next presented frame
+// to the first free vkshotNNN.tga (same channel-correct TGA writer as
+// -vkcapture). F12 -> I_VK_CycleBase: cycle the shader base multiplier
+// 1x -> 2x -> 3x -> 4x -> 1x (persisted through shader_base_resolution;
+// the input image re-creates and the chain re-derives on the next frame).
+void I_VK_RequestCapture(void);
+void I_VK_CycleBase(void);
+
 // From I_FinishUpdate: feed + render + present one frame.
 void I_VK_FinishUpdate(void);
 
