@@ -10,6 +10,8 @@ run on modern computers.
 > Classic behavior is unchanged when no preset is set; see
 > [README-VK.md](README-VK.md).
 
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/576ec924-1529-4db0-955a-502ceb1786bb" />
+
 Originally, Chocolate Doom was only a Doom source port. The project
 now includes ports of Heretic and Hexen, and Strife.
 
