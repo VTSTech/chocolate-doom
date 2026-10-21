@@ -1,0 +1,141 @@
+From 3c813ebea8369cac7d4c74ecf7fdebda56760e5a Mon Sep 17 00:00:00 2001
+From: Nigel Todman <veritas@vts-tech.org>
+Date: Wed, 21 Oct 2026 23:45:39 +0000
+Subject: [PATCH] CHANGELOG: v3 release notes
+
+---
+ CHANGELOG.md | 95 +++++++++++++++++++++++++++++++++++++++++-----------
+ 1 file changed, 75 insertions(+), 20 deletions(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index dfddcf47..4993fc4b 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -9,7 +9,41 @@ Versions: this repository's `v<N>` tags.
+ 
+ ## [Unreleased]
+ 
++## [v3] - 2026-10-21
++
++The GPU-scaler maturity release: true 16:9, warm-start shader caching,
++survivable GPU driver resets, a session log you can actually read on
++Windows, and `libslang-vk` as a shared DLL.
++
+ ### Added
++- **16:9 aspect** — a third stop on the F11 cycle
++  (4:3 → 16:10 → 16:9 → 4:3; `aspect_ratio_correct` 0/1/2). The feed is
++  column-stretched to 356x200 *before* the shader chain, so presets see
++  a genuine 16:9 source and CRT masks stay square on a 16:9 display.
++  The classic renderer treats any non-zero value as 4:3. (Stretched,
++  not true widescreen FOV — that needs engine-side column rendering;
++  see README-VK.md, "Known limitations".)
++- **SPIR-V disk cache** — compiled passes persist in `shader-cache/`
++  beside the executable and reload in milliseconds on warm starts
++  instead of full slang recompiles. Every entry is validated on read
++  (magic, size caps, exact file length) and cache keys are whitelisted
++  to `[0-9a-f]{1,64}`, so a corrupt or hostile file is a silent cache
++  miss, never a failed startup. Writes are atomic (temp file + rename).
++  Built on libslang-vk M4.07's new `slangvk_spirv_cache` API.
++- **Device-lost recovery** — `VK_ERROR_DEVICE_LOST` (driver crash /
++  Windows TDR) no longer kills the game with `I_Error`. All three loss
++  surfaces (render, acquire, frame upload) re-acquire host objects,
++  drop the dead swapchain and rebuild it lazily on the next frame,
++  then confirm recovery with an overlay flash and a log line. Only a
++  failed *recovery* is fatal.
++- **`gpu-scaler.log`** — a timestamped session log written beside the
++  executable (previous run rotated to `.old`). Windows GUI builds have
++  no console, so the path's ~36 printf diagnostics were invisible
++  exactly where they matter most; startup, preset state, SPIR-V cache
++  stats, hotkey actions, fallback reasons and even the final `I_Error`
++  message now land in the log, with a per-line flush so a crash never
++  truncates the tail. Best-effort by design: an unwritable location
++  degrades to console-only and never blocks the game.
+ - **PrintScreen** hotkey — screenshot at any moment: reads back the next
+   presented frame to the first free `vkshotNNN.tga` (names probed with
+   `fopen`, so nothing is ever overwritten). Same channel-correct TGA
+@@ -20,18 +54,34 @@ Versions: this repository's `v<N>` tags.
+   persists in `shader_base_resolution` on exit.
+ - Transient amber feedback row (2 s) in the stats overlay for either
+   hotkey (`shot vkshot000.tga` / `base 640x480 (2x)`).
++- `README-VK.md` grows with the code: 16:9 aspect table, Shader cache
++  and Session log sections, shared-library build instructions, and a
++  Validation section recording the per-batch test harness runs.
+ - This `CHANGELOG.md`.
+ 
+ ### Changed
+-- `libslang-vk` bumped to **M4.06** (release commit `09068b25`): the
+-  M4.05-era library had bugs that made the Vulkan path fail to start
+-  on real drivers — the game silently fell back to the classic SDL2
+-  renderer while the overlay still showed the configured shader.
+-  M4.06 fixes them; the Vulkan path now starts as configured.
+-- The dependency pin is now an **immutable commit hash, not a mutable
+-  release tag** (`GIT_TAG 09068b25… # M4.06 Release` in
+-  `CMakeLists.txt`). A tag can be re-pointed upstream; a commit hash
+-  cannot. Bumping is always a deliberate hash swap.
++- `libslang-vk` pinned to **M4.07** (commit `d176d1b…`, immutable full
++  hash; v2 used the mutable `M4.05` tag). The M4.05-era library had
++  bugs that made the Vulkan path fail to start on real drivers — the
++  game silently fell back to the classic renderer — so v3 rides the
++  M4.06 fixes and settles on M4.07 for its additions: the SPIR-V cache
++  API the disk cache above is built on, C-API null-handle validation
++  (SEC-07) and a zero-allocation render path (PERF-09). Bumping the pin
++  is always a deliberate hash swap in `CMakeLists.txt`.
++- **`libslang-vk` now builds as a shared library** — `libslang-vk.dll`
++  is copied beside all four game executables at build time
++  (`libslang-vk.so` on Linux), exporting its 27 C-API symbols via
++  `cmake/libslang-vk-c-api.def` (MSVC and MinGW need the explicit
++  `.def`; ELF exports the symbols by default anyway). Relinking a game
++  no longer relinks the shader compiler. Prefer static again? One CMake
++  toggle — see README-VK.md, "Building".
++- F11 is now a three-way aspect cycle (was 4:3 ↔ 16:10).
++- Stats overlay: the shader row shows the preset's basename
++  (`crt-easymode | 3 passes`) instead of the full path, and the old
++  "1:1" aspect label is now correctly labeled "16:10".
++
++### Removed
++- `cpp-linter` GitHub Actions workflow.
+ 
+ ### Fixed
+ - A silent-fallback trap: if an earlier `-novulkan` run persisted
+@@ -41,15 +91,19 @@ Versions: this repository's `v<N>` tags.
+   for that run (and persists `usevulkan = 1`); `-novulkan` still wins
+   when both are given.
+ - Vulkan fallbacks are no longer invisible: every failure exit of
+-  `I_VK_AttemptGraphics` records a human-readable reason, shown in
+-  the stats overlay's shader row (`shader.slangp (unused: preset
+-  failed to load)`) and echoed to stdout (`Vulkan path inactive
+-  (…) — classic renderer`). stderr is invisible in Windows GUI
+-  builds — exactly where fallbacks bite hardest.
++  `I_VK_AttemptGraphics` records a human-readable reason, shown in the
++  stats overlay's shader row (`shader.slangp (unused: preset failed to
++  load)`) and written to stdout *and* `gpu-scaler.log` — stderr is
++  invisible in Windows GUI builds, exactly where fallbacks bite
++  hardest.
+ - MSVC/vcpkg builds linked an SDL2 **without** Vulkan support (the
+-  `vulkan` feature of vcpkg's `sdl2` port is not in its defaults):
+-  `vcpkg.json` now requests `sdl2[vulkan]`, so the CI artifact is
+-  actually capable of the Vulkan path.
++  `vulkan` feature of vcpkg's `sdl2` port is not in its defaults), and
++  the manifest's CLI-style `"sdl2[vulkan]"` string is invalid in
++  manifest mode and broke `vcpkg install` outright. `vcpkg.json` now
++  uses the proper object form —
++  `{"name": "sdl2", "features": ["vulkan"]}` — and additionally
++  requests the `vulkan` port (headers + ICD loader) for the renderer's
++  own `find_package(Vulkan)`.
+ - `-vkcapture` screenshots came out blue-shifted. The readback
+   (`slangvk_device_read_pixels`) is a raw `vkCmdCopyImageToBuffer`, so
+   bytes arrive in the surface format's native packing: B8G8R8A8 memory
+@@ -107,6 +161,7 @@ Versions: this repository's `v<N>` tags.
+   `9e593bb18ea69cc5095e012465dcd675a822ed0d`) so the manifest resolves
+   deterministically.
+ 
+-[Unreleased]: https://github.com/VTSTech/chocolate-doom/compare/v2...HEAD
+-[v2]: https://github.com/VTSTech/chocolate-doom/compare/v1...v2
+-[v1]: https://github.com/VTSTech/chocolate-doom/releases/tag/v1
++[Unreleased]: https://github.com/VTSTech/chocolate-doom-vk/compare/v3...HEAD
++[v3]: https://github.com/VTSTech/chocolate-doom-vk/compare/v2...v3
++[v2]: https://github.com/VTSTech/chocolate-doom-vk/compare/v1...v2
++[v1]: https://github.com/VTSTech/chocolate-doom-vk/releases/tag/v1
+-- 
+2.47.3
+
