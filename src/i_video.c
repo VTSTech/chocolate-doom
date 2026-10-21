@@ -13,7 +13,7 @@
 // GNU General Public License for more details.
 //
 // DESCRIPTION:
-//	DOOM graphics stuff for SDL.
+//      DOOM graphics stuff for SDL.
 //
 
 
@@ -39,6 +39,7 @@
 #include "i_system.h"
 #include "i_timer.h"
 #include "i_video.h"
+#include "i_video_vk.h"
 #include "m_argv.h"
 #include "m_config.h"
 #include "m_misc.h"
@@ -51,7 +52,7 @@
 // These are (1) the window (or the full screen) that our game is rendered to
 // and (2) the renderer that scales the texture (see below) into this window.
 
-static SDL_Window *screen;
+SDL_Window *screen;             // shared: the VK presenter assigns into it too
 static SDL_Renderer *renderer;
 
 // Window title
@@ -190,8 +191,8 @@ static boolean window_focused = true;
 
 // Window resize state.
 
-static boolean need_resize = false;
-static unsigned int last_resize_time;
+boolean need_resize = false;   // shared: i_video_vk.c debounces off these
+unsigned int last_resize_time;
 #define RESIZE_DELAY 500
 
 // Gamma correction level to use
@@ -276,11 +277,18 @@ void I_ShutdownGraphics(void)
     {
         SetShowCursor(true);
 
-        SDL_FreeSurface(argbbuffer);
-        SDL_FreeSurface(screenbuffer);
-        SDL_DestroyTexture(texture_upscaled);
-        SDL_DestroyTexture(texture);
-        SDL_DestroyRenderer(renderer);
+        if (I_VK_Active())
+        {
+            I_VK_ShutdownGraphics();
+        }
+        else
+        {
+            SDL_FreeSurface(argbbuffer);
+            SDL_FreeSurface(screenbuffer);
+            SDL_DestroyTexture(texture_upscaled);
+            SDL_DestroyTexture(texture);
+            SDL_DestroyRenderer(renderer);
+        }
         SDL_DestroyWindow(screen);
         SDL_QuitSubSystem(SDL_INIT_VIDEO);
 
@@ -431,6 +439,12 @@ void I_GetEvent(void)
         switch (sdlevent.type)
         {
             case SDL_KEYDOWN:
+                if (I_VK_Active()
+                    && sdlevent.key.keysym.scancode == SDL_SCANCODE_F11)
+                {
+                    I_VK_ToggleAspect();
+                    break;
+                }
                 if (ToggleFullScreenKeyShortcut(&sdlevent.key.keysym))
                 {
                     I_ToggleFullScreen();
@@ -439,7 +453,7 @@ void I_GetEvent(void)
                 // deliberate fall-though
 
             case SDL_KEYUP:
-		I_HandleKeyboardEvent(&sdlevent);
+                I_HandleKeyboardEvent(&sdlevent);
                 break;
 
             case SDL_MOUSEBUTTONDOWN:
@@ -713,7 +727,7 @@ void I_FinishUpdate (void)
     if (noblit)
         return;
 
-    if (need_resize)
+    if (need_resize && !I_VK_Active())
     {
         if (SDL_GetTicks() > last_resize_time + RESIZE_DELAY)
         {
@@ -755,19 +769,26 @@ void I_FinishUpdate (void)
 
     if (display_fps_dots)
     {
-	i = I_GetTime();
-	tics = i - lasttic;
-	lasttic = i;
-	if (tics > 20) tics = 20;
+        i = I_GetTime();
+        tics = i - lasttic;
+        lasttic = i;
+        if (tics > 20) tics = 20;
 
-	for (i=0 ; i<tics*4 ; i+=4)
-	    I_VideoBuffer[ (SCREENHEIGHT-1)*SCREENWIDTH + i] = 0xff;
-	for ( ; i<20*4 ; i+=4)
-	    I_VideoBuffer[ (SCREENHEIGHT-1)*SCREENWIDTH + i] = 0x0;
+        for (i=0 ; i<tics*4 ; i+=4)
+            I_VideoBuffer[ (SCREENHEIGHT-1)*SCREENWIDTH + i] = 0xff;
+        for ( ; i<20*4 ; i+=4)
+            I_VideoBuffer[ (SCREENHEIGHT-1)*SCREENWIDTH + i] = 0x0;
     }
 
     // Draw disk icon before blit, if necessary.
     V_DrawDiskIcon();
+
+    if (I_VK_Active())
+    {
+        I_VK_FinishUpdate();
+        V_RestoreDiskBackground();
+        return;
+    }
 
     if (palette_to_set)
     {
@@ -852,6 +873,11 @@ void I_SetPalette (byte *doompalette)
     }
 
     palette_to_set = true;
+
+    if (I_VK_Active())
+    {
+        I_VK_SetPalette(palette);
+    }
 }
 
 // Given an RGB value, find the closest matching palette index.
@@ -902,7 +928,8 @@ void I_InitWindowTitle(void)
 {
     char *buf;
 
-    buf = M_StringJoin(window_title, " - ", PACKAGE_STRING, NULL);
+    buf = M_StringJoin(window_title, " - ", PACKAGE_STRING,
+                       I_VK_Active() ? " [VK]" : "", NULL);
     SDL_SetWindowTitle(screen, buf);
     free(buf);
 }
@@ -1106,6 +1133,68 @@ void I_GraphicsCheckCommandLine(void)
     {
         SetScaleFactor(3);
     }
+
+    //!
+    // @category video
+    // @arg <preset>
+    //
+    // Run the game's frames through a libretro slang shader preset
+    // (.slangp) using Vulkan (libslang-vk). Falls back to the classic
+    // renderer if Vulkan or the preset is unavailable.
+    //
+
+    i = M_CheckParmWithArgs("-shader", 1);
+    if (i > 0)
+    {
+        shader_preset = myargv[i + 1];
+    }
+
+    //!
+    // @category video
+    //
+    // Disable the Vulkan shader path for this run (classic renderer).
+    //
+
+    if (M_ParmExists("-novulkan"))
+    {
+        usevulkan = 0;
+    }
+
+    //!
+    // @category video
+    //
+    // Enable the Vulkan validation layer for this run.
+    //
+
+    if (M_ParmExists("-vkdebug"))
+    {
+        vk_debug = 1;
+    }
+
+    //!
+    // @category video
+    //
+    // Feed the shader chain raw 320x200 pixels instead of the authentic
+    // 4:3 (320x240) stretch.
+    //
+
+    if (M_ParmExists("-noaspect"))
+    {
+        aspect_ratio_correct = 0;
+    }
+
+    //!
+    // @category video
+    // @arg <frame>
+    //
+    // Capture that presented frame to vkframe.tga (Vulkan path debug aid).
+    //
+
+    i = M_CheckParmWithArgs("-vkcapture", 1);
+    if (i > 0)
+    {
+        vk_capture_frame = atoi(myargv[i + 1]);
+    }
 }
 
 // Check if we have been invoked as a screensaver by xscreensaver.
@@ -1269,7 +1358,7 @@ static void SetVideoMode(void)
     // The SDL_RENDERER_TARGETTEXTURE flag is required to render the
     // intermediate texture into the upscaled texture.
     renderer_flags = SDL_RENDERER_TARGETTEXTURE;
-	
+        
     if (SDL_GetCurrentDisplayMode(video_display, &mode) != 0)
     {
         I_Error("Could not get display mode for video display #%d: %s",
@@ -1370,9 +1459,9 @@ static void SetVideoMode(void)
 
     if (argbbuffer == NULL)
     {
-	    // pixels and pitch will be filled with the texture's values
-	    // in I_FinishUpdate()
-	    argbbuffer = SDL_CreateRGBSurfaceWithFormatFrom(
+            // pixels and pitch will be filled with the texture's values
+            // in I_FinishUpdate()
+            argbbuffer = SDL_CreateRGBSurfaceWithFormatFrom(
                      NULL, w, h, 0, 0, SDL_PIXELFORMAT_ARGB8888);
     }
 
@@ -1462,18 +1551,27 @@ void I_InitGraphics(void)
     // Create the game window; this may switch graphic modes depending
     // on configuration.
     AdjustWindowSize();
-    SetVideoMode();
+    if (!I_VK_AttemptGraphics())
+    {
+        SetVideoMode();
+    }
 
     // Start with a clear black screen
     // (screen will be flipped after we set the palette)
 
-    SDL_FillRect(screenbuffer, NULL, 0);
+    if (!I_VK_Active())
+    {
+        SDL_FillRect(screenbuffer, NULL, 0);
+    }
 
     // Set the palette
 
     doompal = W_CacheLumpName(DEH_String("PLAYPAL"), PU_CACHE);
     I_SetPalette(doompal);
-    SDL_SetPaletteColors(screenbuffer->format->palette, palette, 0, 256);
+    if (!I_VK_Active())
+    {
+        SDL_SetPaletteColors(screenbuffer->format->palette, palette, 0, 256);
+    }
 
     // SDL2-TODO UpdateFocus();
     UpdateGrab();
@@ -1493,7 +1591,10 @@ void I_InitGraphics(void)
     // 32-bit RGBA screen buffer that gets loaded into a texture that gets
     // finally rendered into our window or full screen in I_FinishUpdate().
 
-    I_VideoBuffer = screenbuffer->pixels;
+    if (!I_VK_Active())
+    {
+        I_VideoBuffer = screenbuffer->pixels;
+    }
     V_RestoreBuffer();
 
     // Clear the screen to black.
@@ -1534,4 +1635,9 @@ void I_BindVideoVariables(void)
     M_BindStringVariable("window_position",        &window_position);
     M_BindIntVariable("usegamma",                  &usegamma);
     M_BindIntVariable("png_screenshots",           &png_screenshots);
+
+    // Chocolate Doom VK (libslang-vk):
+
+    M_BindIntVariable("usevulkan",                  &usevulkan);
+    M_BindStringVariable("shader",                   &shader_preset);
 }

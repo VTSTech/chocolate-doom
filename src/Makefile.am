@@ -82,6 +82,7 @@ i_sdlsound.c                               \
 i_sound.c            i_sound.h             \
 i_timer.c            i_timer.h             \
 i_video.c            i_video.h             \
+i_video_vk.c          i_video_vk.h          \
 i_videohr.c          i_videohr.h           \
 i_winmusic.c                               \
 midifallback.c       midifallback.h        \
@@ -191,21 +192,21 @@ endif
 @PROGRAM_PREFIX@strife_LDADD = strife/libstrife.a $(EXTRA_LIBS)
 
 $(SETUP_BINARIES): @PROGRAM_PREFIX@setup$(EXEEXT)
-	cp @PROGRAM_PREFIX@setup$(EXEEXT) $@
+        cp @PROGRAM_PREFIX@setup$(EXEEXT) $@
 
 # Make "make" aware of convenience libraries in subdirectories
 
 doom/libdoom.a:
-	$(MAKE) -C doom
+        $(MAKE) -C doom
 
 heretic/libheretic.a:
-	$(MAKE) -C heretic
+        $(MAKE) -C heretic
 
 hexen/libhexen.a:
-	$(MAKE) -C hexen
+        $(MAKE) -C hexen
 
 strife/libstrife.a:
-	$(MAKE) -C strife
+        $(MAKE) -C strife
 
 # Source files needed for chocolate-setup:
 
@@ -246,16 +247,16 @@ metainfo_DATA =                             \
         @PACKAGE_RDNS@.Strife.metainfo.xml
 
 @PACKAGE_RDNS@.Doom.metainfo.xml : Doom.metainfo.xml
-	cp Doom.metainfo.xml $@
+        cp Doom.metainfo.xml $@
 
 @PACKAGE_RDNS@.Heretic.metainfo.xml : Heretic.metainfo.xml
-	cp Heretic.metainfo.xml $@
+        cp Heretic.metainfo.xml $@
 
 @PACKAGE_RDNS@.Hexen.metainfo.xml : Hexen.metainfo.xml
-	cp Hexen.metainfo.xml $@
+        cp Hexen.metainfo.xml $@
 
 @PACKAGE_RDNS@.Strife.metainfo.xml : Strife.metainfo.xml
-	cp Strife.metainfo.xml $@
+        cp Strife.metainfo.xml $@
 
 appdir = $(prefix)/share/applications
 app_DATA =                                 \
@@ -265,35 +266,35 @@ app_DATA =                                 \
            @PACKAGE_RDNS@.Strife.desktop
 
 @PACKAGE_RDNS@.Doom.desktop : Doom.desktop
-	cp Doom.desktop $@
+        cp Doom.desktop $@
 
 @PACKAGE_RDNS@.Heretic.desktop : Heretic.desktop
-	cp Heretic.desktop $@
+        cp Heretic.desktop $@
 
 @PACKAGE_RDNS@.Hexen.desktop : Hexen.desktop
-	cp Hexen.desktop $@
+        cp Hexen.desktop $@
 
 @PACKAGE_RDNS@.Strife.desktop : Strife.desktop
-	cp Strife.desktop $@
+        cp Strife.desktop $@
 
 screensaverdir = $(prefix)/share/applications/screensavers
 screensaver_DATA = @PACKAGE_RDNS@.Doom_Screensaver.desktop
 
 @PACKAGE_RDNS@.Doom_Screensaver.desktop: Doom_Screensaver.desktop
-	cp Doom_Screensaver.desktop $@
+        cp Doom_Screensaver.desktop $@
 
 CLEANFILES = $(execgames_SCRIPTS) $(metainfo_DATA) $(app_DATA) $(screensaver_DATA)
 
 .rc.o:
-	$(WINDRES) $< -o $@
+        $(WINDRES) $< -o $@
 %.o : %.rc
-	$(WINDRES) $< -o $@
+        $(WINDRES) $< -o $@
 
 midiread : midifile.c
-	$(CC) -DTEST $(CFLAGS) @LDFLAGS@ midifile.c -o $@
+        $(CC) -DTEST $(CFLAGS) @LDFLAGS@ midifile.c -o $@
 
 MUS2MID_SRC_FILES = mus2mid.c memio.c z_native.c i_system.c m_argv.c m_misc.c
 mus2mid : $(MUS2MID_SRC_FILES)
-	$(CC) -DSTANDALONE -I$(top_builddir) $(CFLAGS) @LDFLAGS@ \
+        $(CC) -DSTANDALONE -I$(top_builddir) $(CFLAGS) @LDFLAGS@ \
               $(MUS2MID_SRC_FILES) -o $@
 

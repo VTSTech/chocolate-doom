@@ -4,6 +4,12 @@ Chocolate Doom aims to accurately reproduce the original DOS version of
 Doom and other games based on the Doom engine in a form that can be
 run on modern computers.
 
+> **This is Chocolate Doom VK** — a fork that runs every frame through
+> libretro slang shader presets (`.slangp`) via Vulkan and
+> [VTSTech/libslang-vk](https://github.com/VTSTech/libslang-vk).
+> Classic behavior is unchanged when no preset is set; see
+> [README-VK.md](README-VK.md).
+
 Originally, Chocolate Doom was only a Doom source port. The project
 now includes ports of Heretic and Hexen, and Strife.
 

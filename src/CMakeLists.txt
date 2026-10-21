@@ -85,6 +85,7 @@ set(GAME_SOURCE_FILES
     i_sound.c           i_sound.h
     i_timer.c           i_timer.h
     i_video.c           i_video.h
+    i_video_vk.c        i_video_vk.h
     i_videohr.c         i_videohr.h
     i_winmusic.c
     midifallback.c      midifallback.h
@@ -158,7 +159,13 @@ if(FluidSynth_FOUND)
     list(APPEND EXTRA_LIBS FluidSynth::libfluidsynth)
 endif()
 if(WIN32)
-	list(APPEND EXTRA_LIBS winmm shlwapi)
+        list(APPEND EXTRA_LIBS winmm shlwapi)
+endif()
+
+# Chocolate Doom VK: the shader-presenter library (present in every game
+# binary; i_video_vk.c degrades to no-op stubs when ENABLE_VK_SHADERS is off).
+if(ENABLE_VK_SHADERS)
+    list(APPEND EXTRA_LIBS slangvk::slangvk)
 endif()
 
 if(WIN32)

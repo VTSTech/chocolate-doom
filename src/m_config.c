@@ -118,7 +118,7 @@ typedef struct
 
 //! @begin_config_file default
 
-static default_t	doom_defaults_list[] =
+static default_t        doom_defaults_list[] =
 {
     //!
     // Mouse sensitivity.  This value is used to multiply input mouse
@@ -737,6 +737,23 @@ static default_t extra_defaults_list[] =
     //
 
     CONFIG_VARIABLE_INT(aspect_ratio_correct),
+
+    //!
+    // If non-zero, allow the Vulkan shader path. Combined with a set
+    // "shader", the game's frames run through a libretro slang shader
+    // preset (.slangp) via libslang-vk; on any failure the game falls
+    // back to the classic SDL2 renderer. (Chocolate Doom VK)
+    //
+
+    CONFIG_VARIABLE_INT(usevulkan),
+
+    //!
+    // Path to a libretro slang shader preset (.slangp) run over the
+    // game's frames through Vulkan (libslang-vk). Empty means the
+    // classic renderer. (Chocolate Doom VK)
+    //
+
+    CONFIG_VARIABLE_STRING(shader),
 
     //!
     // If non-zero, the screen will have smooth scaling.
@@ -2107,7 +2124,7 @@ static const int scantokey[128] =
     0  ,    27,     '1',    '2',    '3',    '4',    '5',    '6',
     '7',    '8',    '9',    '0',    '-',    '=',    KEY_BACKSPACE, 9,
     'q',    'w',    'e',    'r',    't',    'y',    'u',    'i',
-    'o',    'p',    '[',    ']',    13,		KEY_RCTRL, 'a',    's',
+    'o',    'p',    '[',    ']',    13,         KEY_RCTRL, 'a',    's',
     'd',    'f',    'g',    'h',    'j',    'k',    'l',    ';',
     '\'',   '`',    KEY_RSHIFT,'\\',   'z',    'x',    'c',    'v',
     'b',    'n',    'm',    ',',    '.',    '/',    KEY_RSHIFT,KEYP_MULTIPLY,
@@ -2128,13 +2145,13 @@ static void SaveDefaultCollection(default_collection_t *collection)
     default_t *defaults;
     int i, v;
     FILE *f;
-	
+        
     f = M_fopen(collection->filename, "w");
     if (!f)
-	return; // can't write the file, but don't complain
+        return; // can't write the file, but don't complain
 
     defaults = collection->defaults;
-		
+                
     for (i=0 ; i<collection->numdefaults ; i++)
     {
         int chars_written;
@@ -2200,15 +2217,15 @@ static void SaveDefaultCollection(default_collection_t *collection)
                     }
                 }
 
-	        fprintf(f, "%i", v);
+                fprintf(f, "%i", v);
                 break;
 
             case DEFAULT_INT:
-	        fprintf(f, "%i", *defaults[i].location.i);
+                fprintf(f, "%i", *defaults[i].location.i);
                 break;
 
             case DEFAULT_INT_HEX:
-	        fprintf(f, "0x%x", *defaults[i].location.i);
+                fprintf(f, "0x%x", *defaults[i].location.i);
                 break;
 
             case DEFAULT_FLOAT:
@@ -2216,7 +2233,7 @@ static void SaveDefaultCollection(default_collection_t *collection)
                 break;
 
             case DEFAULT_STRING:
-	        fprintf(f,"\"%s\"", *defaults[i].location.s);
+                fprintf(f,"\"%s\"", *defaults[i].location.s);
                 break;
         }
 
@@ -2446,8 +2463,8 @@ void M_LoadDefaults (void)
 
     if (i)
     {
-	doom_defaults.filename = myargv[i+1];
-	printf ("	default file: %s\n",doom_defaults.filename);
+        doom_defaults.filename = myargv[i+1];
+        printf ("       default file: %s\n",doom_defaults.filename);
     }
     else
     {
@@ -2757,7 +2774,7 @@ char *M_GetSaveGameDir(const char *iwadname)
     // a savegame directory, either.
     else if (!strcmp(configdir, exedir))
     {
-	savegamedir = M_StringDuplicate("");
+        savegamedir = M_StringDuplicate("");
     }
     else
     {

@@ -55,6 +55,36 @@ else()
     add_compile_definitions(DISABLE_SDL2NET=1)
 endif()
 
+# Chocolate Doom VK: run libretro slang shader presets (.slangp) through
+# Vulkan via VTSTech/libslang-vk (pure-C API, C++23 library behind it). The
+# library is fetched at configure time and linked into the game binaries;
+# the games' own sources stay C99. No Vulkan SDK needed anywhere: the
+# library loads the Vulkan runtime through volk, and the presenter resolves
+# its few direct entry points through SDL_Vulkan_GetVkGetInstanceProcAddr.
+option(ENABLE_VK_SHADERS "libretro slang shader presets via Vulkan (VTSTech/libslang-vk)" On)
+if(ENABLE_VK_SHADERS)
+    if(DEFINED EMSCRIPTEN)
+        message(FATAL_ERROR "ENABLE_VK_SHADERS is not supported on Emscripten")
+    endif()
+    add_compile_definitions(ENABLE_VK_SHADERS=1)
+    # The library's targets require cxx_std_23; the games' project() only
+    # enables C, so turn on CXX for the embedded library's targets.
+    enable_language(CXX)
+    include(FetchContent)
+    set(SLANGVK_BUILD_TESTS OFF)    # the upstream suite runs in its own repo
+    set(SLANGVK_BUILD_EXAMPLES OFF)
+    set(SLANGVK_BUILD_SHARED OFF)   # single static link into each game
+    FetchContent_Declare(libslang-vk
+        GIT_REPOSITORY https://github.com/VTSTech/libslang-vk.git
+        GIT_TAG M4.05             # tested milestone (26/26 ctest, byte-exact goldens)
+        GIT_SHALLOW TRUE)
+    FetchContent_MakeAvailable(libslang-vk)
+    # The library's targets require C++23 (its scope sets it for its own
+    # sources); harmless here — the game code stays C99.
+    set(CMAKE_CXX_STANDARD 23)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON)
+endif()
+
 
 # Check for libsamplerate.
 find_package(SampleRate)
@@ -103,3 +133,7 @@ configure_file(src/strife-res.rc.in src/strife-res.rc)
 foreach(SUBDIR textscreen opl pcsound src)
     add_subdirectory("${SUBDIR}")
 endforeach()
+
+# Install the .slangp demo presets shipped with libslang-vk? No — this fork
+# ships none by design (see README-VK.md); presets live in the user's
+# slang-shaders clone and -shader accepts any path.
