@@ -7,8 +7,11 @@ name: VK shaders (libslang-vk)
 #   the preset chain, frame capture via -vkcapture, plus a compile check of
 #   the ENABLE_VK_SHADERS=OFF fallback. Upstream's main.yml (autotools,
 #   classic renderer) is left untouched.
-# - Windows MSYS2 (UCRT64, MinGW): CMake build, artifacts packaged.
-# - Windows MSVC (vcpkg manifest): CMake build.
+# - Windows MSYS2 (UCRT64, MinGW): CMake build; the zip step must glob real
+#   files — a bare "." argument makes Info-ZIP exit 12 ("Nothing to do").
+# - Windows MSVC (vcpkg): vcpkg is cloned at the release tag whose commit
+#   is pinned as "builtin-baseline" in vcpkg.json — keep the two in sync.
+#   CMake's toolchain consumes the manifest (auto-install at configure).
 
 on:
   push:
@@ -116,11 +119,20 @@ jobs:
 
       - name: Package
         run: |
+          set -x
           mkdir -p pkg
           cp build/src/chocolate-{doom,heretic,hexen,strife,setup}.exe pkg/
           # The MinGW runtime DLLs the binaries need on clean systems.
-          ldd build/src/chocolate-doom.exe | grep ucrt64 | cut -d' ' -f3 | xargs -I{} cp {} pkg/ || true
-          cd pkg && zip -q ../chocolate-doom-vk-windows-ucrt64.zip . && cd ..
+          # Walk every game binary (not just chocolate-doom) so setup's
+          # dependencies are covered too; || true per line for binaries
+          # that resolve no /ucrt64 libraries.
+          for exe in build/src/chocolate-{doom,heretic,hexen,strife,setup}.exe; do
+            ldd "$exe" | grep ucrt64 | cut -d' ' -f3 || true
+          done | sort -u | xargs -r -I{} cp {} pkg/
+          # zip needs real file arguments: a bare "." without -r matches
+          # nothing and exits 12 ("Nothing to do"). Glob instead.
+          cd pkg
+          zip -q ../chocolate-doom-vk-windows-ucrt64.zip *
 
       - uses: actions/upload-artifact@v4
         with:
@@ -133,30 +145,42 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: ilammy/msvc-dev-cmd@v1
-      - name: Restore vcpkg
-        uses: lukka/run-vcpkg@v11
-        with:
-          runVcpkgInstall: false
 
-      - name: Install dependencies (vcpkg manifest)
-        run: vcpkg install --triplet x64-windows
+      # Own pinned clone instead of lukka/run-vcpkg: the action refuses to
+      # run without a manifest baseline, and a clone at the exact tag that
+      # matches vcpkg.json's builtin-baseline is fully deterministic
+      # (baseline == HEAD, so git rev-parse always resolves).
+      - name: Set up vcpkg (pinned 2026.07.29)
+        shell: cmd
+        run: |
+          git clone --depth 1 --branch 2026.07.29 https://github.com/microsoft/vcpkg.git "%RUNNER_TEMP%\vcpkg"
+          "%RUNNER_TEMP%\vcpkg\bootstrap-vcpkg.bat" -disableMetrics
 
+      # Manifest mode: configure auto-installs the vcpkg.json dependencies
+      # into build\vcpkg_installed\x64-windows. No Vulkan SDK needed
+      # anywhere (libslang-vk vendors volk; the presenter resolves its few
+      # entry points at runtime).
       - name: Configure + build
+        shell: cmd
         run: |
           cmake -S . -B build -G Ninja ^
             -DCMAKE_BUILD_TYPE=Release ^
             -DENABLE_SDL2_NET=OFF ^
-            -DCMAKE_TOOLCHAIN_FILE=%VCPKG_INSTALLATION_ROOT%\scripts\buildsystems\vcpkg.cmake ^
+            -DCMAKE_TOOLCHAIN_FILE="%RUNNER_TEMP%\vcpkg\scripts\buildsystems\vcpkg.cmake" ^
             -DVCPKG_TARGET_TRIPLET=x64-windows
           cmake --build build
-        shell: cmd
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path pkg | Out-Null
+          Copy-Item build\src\chocolate-*.exe pkg\
+          if (Test-Path build\vcpkg_installed) {
+            Copy-Item build\vcpkg_installed\x64-windows\bin\*.dll pkg\
+          }
+          Compress-Archive -Path pkg\* -DestinationPath chocolate-doom-vk-windows-msvc.zip -Force
 
       - uses: actions/upload-artifact@v4
         with:
           name: chocolate-doom-vk-windows-msvc
-          path: |
-            build/src/chocolate-doom.exe
-            build/src/chocolate-heretic.exe
-            build/src/chocolate-hexen.exe
-            build/src/chocolate-strife.exe
-            build/src/chocolate-setup.exe
+          path: chocolate-doom-vk-windows-msvc.zip
