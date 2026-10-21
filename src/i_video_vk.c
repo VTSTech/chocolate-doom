@@ -105,6 +105,24 @@ int I_VK_PassCount(void)
     return vk_pass_count;
 }
 
+// Why the Vulkan path is not running: set at every failure exit of
+// I_VK_AttemptGraphics (and by the stub build below), shown in the
+// stats overlay's shader row so a fallback to the classic renderer is
+// never silent — stderr is invisible in Windows GUI builds, which is
+// exactly where these failures are most common (e.g. an SDL2 without
+// Vulkan support compiled in).
+static char vk_fallback_reason[96] = "";
+
+static void SetFallbackReason(const char *reason)
+{
+    M_StringCopy(vk_fallback_reason, reason, sizeof(vk_fallback_reason));
+}
+
+const char *I_VK_FallbackReason(void)
+{
+    return vk_active ? "" : vk_fallback_reason;
+}
+
 // libslang-vk objects (destroy order per c.h: chain -> preset -> image ->
 // device, with this file's own Vulkan objects torn down before the device).
 static slangvk_device *vk_device = NULL;
@@ -1028,8 +1046,17 @@ boolean I_VK_AttemptGraphics(void)
     VkBool32 present_supported = VK_FALSE;
     int feed_h;
 
+    SetFallbackReason("");
+
     if (!usevulkan || shader_preset == NULL || shader_preset[0] == '\0')
     {
+        if (!usevulkan)
+        {
+            // Explicitly off for this run (a -novulkan run persists
+            // usevulkan = 0). Say so: without this the fallback is
+            // indistinguishable from a failure.
+            SetFallbackReason("usevulkan = 0");
+        }
         return false;         // VK path not requested — classic renderer
     }
 
@@ -1039,6 +1066,7 @@ boolean I_VK_AttemptGraphics(void)
     //    SetVideoMode() reuses or recreates it).
     if (!CreateVKWindow())
     {
+        SetFallbackReason("window creation failed");
         return false;
     }
 
@@ -1046,6 +1074,7 @@ boolean I_VK_AttemptGraphics(void)
     {
         fprintf(stderr, "I_VK: SDL_Vulkan_LoadLibrary failed: %s\n",
                 SDL_GetError());
+        SetFallbackReason("SDL2 has no Vulkan support");
         I_VK_ShutdownGraphics();
         return false;
     }
@@ -1055,6 +1084,7 @@ boolean I_VK_AttemptGraphics(void)
         || ext_count == 0)
     {
         fprintf(stderr, "I_VK: SDL_Vulkan_GetInstanceExtensions failed\n");
+        SetFallbackReason("SDL2 lacks Vulkan windowing");
         I_VK_ShutdownGraphics();
         return false;
     }
@@ -1063,6 +1093,7 @@ boolean I_VK_AttemptGraphics(void)
         || SDL_Vulkan_GetInstanceExtensions(screen, &ext_count, inst_exts) == SDL_FALSE)
     {
         fprintf(stderr, "I_VK: SDL_Vulkan_GetInstanceExtensions failed\n");
+        SetFallbackReason("SDL2 lacks Vulkan windowing");
         free(inst_exts);
         I_VK_ShutdownGraphics();
         return false;
@@ -1083,6 +1114,7 @@ boolean I_VK_AttemptGraphics(void)
     {
         fprintf(stderr, "I_VK: slangvk_device_create failed: %s\n",
                 slangvk_last_error());
+        SetFallbackReason("Vulkan device init failed");
         free(inst_exts);
         I_VK_ShutdownGraphics();
         return false;
@@ -1094,12 +1126,14 @@ boolean I_VK_AttemptGraphics(void)
                                    &vk_ldevice, &vk_queue, &vk_family) != SLANGVK_OK)
     {
         fprintf(stderr, "I_VK: slangvk_device_get_handles failed\n");
+        SetFallbackReason("Vulkan device init failed");
         I_VK_ShutdownGraphics();
         return false;
     }
 
     if (!LoadVulkanFunctions())
     {
+        SetFallbackReason("Vulkan entry points missing");
         I_VK_ShutdownGraphics();
         return false;
     }
@@ -1109,6 +1143,7 @@ boolean I_VK_AttemptGraphics(void)
     {
         fprintf(stderr, "I_VK: SDL_Vulkan_CreateSurface failed: %s\n",
                 SDL_GetError());
+        SetFallbackReason("Vulkan surface creation failed");
         I_VK_ShutdownGraphics();
         return false;
     }
@@ -1118,6 +1153,7 @@ boolean I_VK_AttemptGraphics(void)
     if (present_supported != VK_TRUE)
     {
         fprintf(stderr, "I_VK: graphics queue does not present to this surface\n");
+        SetFallbackReason("GPU cannot present to window");
         I_VK_ShutdownGraphics();
         return false;
     }
@@ -1125,6 +1161,7 @@ boolean I_VK_AttemptGraphics(void)
     // 5) Swapchain (mirrors the reference host's choices).
     if (!CreateSwapchain())
     {
+        SetFallbackReason("swapchain creation failed");
         I_VK_ShutdownGraphics();
         return false;
     }
@@ -1140,6 +1177,7 @@ boolean I_VK_AttemptGraphics(void)
     {
         fprintf(stderr, "I_VK: slangvk_image_create failed: %s\n",
                 slangvk_last_error());
+        SetFallbackReason("Vulkan image creation failed");
         I_VK_ShutdownGraphics();
         return false;
     }
@@ -1149,6 +1187,7 @@ boolean I_VK_AttemptGraphics(void)
     {
         fprintf(stderr, "I_VK: failed to load preset '%s': %s\n",
                 shader_preset, slangvk_last_error());
+        SetFallbackReason("preset failed to load");
         I_VK_ShutdownGraphics();
         return false;
     }
@@ -1162,6 +1201,7 @@ boolean I_VK_AttemptGraphics(void)
     {
         fprintf(stderr, "I_VK: slangvk_chain_create failed: %s\n",
                 slangvk_last_error());
+        SetFallbackReason("shader chain creation failed");
         I_VK_ShutdownGraphics();
         return false;
     }
@@ -1172,6 +1212,7 @@ boolean I_VK_AttemptGraphics(void)
     I_VideoBuffer = malloc(SCREENWIDTH * SCREENHEIGHT);
     if (I_VideoBuffer == NULL)
     {
+        SetFallbackReason("out of memory");
         I_VK_ShutdownGraphics();
         return false;
     }
@@ -1212,6 +1253,15 @@ boolean I_VK_AttemptGraphics(void)
 
 boolean I_VK_Active(void)                { return false; }
 boolean I_VK_AttemptGraphics(void)       { return false; }
+
+const char *I_VK_FallbackReason(void)
+{
+    // The feature was compiled out entirely; if a shader was requested
+    // the overlay should still be able to explain itself.
+    return (usevulkan && shader_preset != NULL && shader_preset[0] != '\0')
+        ? "built without VK support" : "";
+}
+
 void I_VK_SetPalette(const SDL_Color *palette) { (void) palette; }
 void I_VK_FlagResize(void)               { }
 void I_VK_ToggleAspect(void)             { }

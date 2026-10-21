@@ -471,7 +471,7 @@ void I_GetEvent(void)
                 // deliberate fall-though
 
             case SDL_KEYUP:
-		I_HandleKeyboardEvent(&sdlevent);
+                I_HandleKeyboardEvent(&sdlevent);
                 break;
 
             case SDL_MOUSEBUTTONDOWN:
@@ -787,15 +787,15 @@ void I_FinishUpdate (void)
 
     if (display_fps_dots)
     {
-	i = I_GetTime();
-	tics = i - lasttic;
-	lasttic = i;
-	if (tics > 20) tics = 20;
+        i = I_GetTime();
+        tics = i - lasttic;
+        lasttic = i;
+        if (tics > 20) tics = 20;
 
-	for (i=0 ; i<tics*4 ; i+=4)
-	    I_VideoBuffer[ (SCREENHEIGHT-1)*SCREENWIDTH + i] = 0xff;
-	for ( ; i<20*4 ; i+=4)
-	    I_VideoBuffer[ (SCREENHEIGHT-1)*SCREENWIDTH + i] = 0x0;
+        for (i=0 ; i<tics*4 ; i+=4)
+            I_VideoBuffer[ (SCREENHEIGHT-1)*SCREENWIDTH + i] = 0xff;
+        for ( ; i<20*4 ; i+=4)
+            I_VideoBuffer[ (SCREENHEIGHT-1)*SCREENWIDTH + i] = 0x0;
     }
 
     // Draw disk icon before blit, if necessary.
@@ -1167,6 +1167,12 @@ void I_GraphicsCheckCommandLine(void)
     if (i > 0)
     {
         shader_preset = myargv[i + 1];
+        // Asking for a shader on the command line is explicit intent:
+        // re-enable the Vulkan path even if an earlier -novulkan run
+        // persisted usevulkan = 0 in the config. (-novulkan below still
+        // wins when both are given, so forcing the classic renderer
+        // stays possible.)
+        usevulkan = 1;
     }
 
     //!
@@ -1408,7 +1414,7 @@ static void SetVideoMode(void)
     // The SDL_RENDERER_TARGETTEXTURE flag is required to render the
     // intermediate texture into the upscaled texture.
     renderer_flags = SDL_RENDERER_TARGETTEXTURE;
-	
+        
     if (SDL_GetCurrentDisplayMode(video_display, &mode) != 0)
     {
         I_Error("Could not get display mode for video display #%d: %s",
@@ -1509,9 +1515,9 @@ static void SetVideoMode(void)
 
     if (argbbuffer == NULL)
     {
-	    // pixels and pitch will be filled with the texture's values
-	    // in I_FinishUpdate()
-	    argbbuffer = SDL_CreateRGBSurfaceWithFormatFrom(
+            // pixels and pitch will be filled with the texture's values
+            // in I_FinishUpdate()
+            argbbuffer = SDL_CreateRGBSurfaceWithFormatFrom(
                      NULL, w, h, 0, 0, SDL_PIXELFORMAT_ARGB8888);
     }
 
@@ -1603,6 +1609,15 @@ void I_InitGraphics(void)
     AdjustWindowSize();
     if (!I_VK_AttemptGraphics())
     {
+        // A shader was requested but the Vulkan path did not start —
+        // say why (stdout survives `> log.txt` redirection on Windows,
+        // where GUI subsystem builds show no console at all; the same
+        // reason is mirrored in the stats overlay's shader row).
+        if (shader_preset != NULL && shader_preset[0] != '\0')
+        {
+            printf("I_VK: Vulkan path inactive (%s) — classic renderer\n",
+                   I_VK_FallbackReason());
+        }
         SetVideoMode();
     }
 

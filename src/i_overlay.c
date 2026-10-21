@@ -311,9 +311,20 @@ static void OverlayShaderLine(char *dest, size_t dest_size)
     passes = I_VK_PassCount();
     if (!I_VK_Active())
     {
-        // A preset is configured but the Vulkan path did not start;
-        // say so instead of silently implying it is in use.
-        snprintf(raw, sizeof(raw), "%s (unused)", clipped);
+        // A preset is configured but the Vulkan path did not start; say
+        // why instead of silently implying it is in use (the reason comes
+        // from I_VK_FallbackReason — stderr is invisible on Windows GUI
+        // builds, so this row is often the only place it can be seen).
+        const char *reason = I_VK_FallbackReason();
+
+        if (reason[0] != '\0')
+        {
+            snprintf(raw, sizeof(raw), "%s (unused: %s)", clipped, reason);
+        }
+        else
+        {
+            snprintf(raw, sizeof(raw), "%s (unused)", clipped);
+        }
     }
     else if (passes > 0)
     {

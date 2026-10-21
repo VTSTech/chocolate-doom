@@ -23,14 +23,33 @@ Versions: this repository's `v<N>` tags.
 - This `CHANGELOG.md`.
 
 ### Changed
-- `libslang-vk` is now pinned by **content hash, not release tag**:
-  CMake fetches the tarball of the exact commit `M4.05` points at
-  (`fa65b6d5`) and verifies it by SHA256 at configure time
-  (`URL_HASH` in `CMakeLists.txt`). A tag can be re-pointed or its
-  archive regenerated upstream; a hash cannot drift. Same tested
-  content as before — this is a supply-chain hardening change only.
+- `libslang-vk` bumped to **M4.06** (release commit `09068b25`): the
+  M4.05-era library had bugs that made the Vulkan path fail to start
+  on real drivers — the game silently fell back to the classic SDL2
+  renderer while the overlay still showed the configured shader.
+  M4.06 fixes them; the Vulkan path now starts as configured.
+- The dependency pin is now an **immutable commit hash, not a mutable
+  release tag** (`GIT_TAG 09068b25… # M4.06 Release` in
+  `CMakeLists.txt`). A tag can be re-pointed upstream; a commit hash
+  cannot. Bumping is always a deliberate hash swap.
 
 ### Fixed
+- A silent-fallback trap: if an earlier `-novulkan` run persisted
+  `usevulkan = 0`, later runs with `-shader <path>` stayed on the
+  classic renderer with no indication why. Passing `-shader` on the
+  command line is explicit intent and now re-enables the Vulkan path
+  for that run (and persists `usevulkan = 1`); `-novulkan` still wins
+  when both are given.
+- Vulkan fallbacks are no longer invisible: every failure exit of
+  `I_VK_AttemptGraphics` records a human-readable reason, shown in
+  the stats overlay's shader row (`shader.slangp (unused: preset
+  failed to load)`) and echoed to stdout (`Vulkan path inactive
+  (…) — classic renderer`). stderr is invisible in Windows GUI
+  builds — exactly where fallbacks bite hardest.
+- MSVC/vcpkg builds linked an SDL2 **without** Vulkan support (the
+  `vulkan` feature of vcpkg's `sdl2` port is not in its defaults):
+  `vcpkg.json` now requests `sdl2[vulkan]`, so the CI artifact is
+  actually capable of the Vulkan path.
 - `-vkcapture` screenshots came out blue-shifted. The readback
   (`slangvk_device_read_pixels`) is a raw `vkCmdCopyImageToBuffer`, so
   bytes arrive in the surface format's native packing: B8G8R8A8 memory

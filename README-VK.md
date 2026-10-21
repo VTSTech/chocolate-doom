@@ -38,11 +38,12 @@ off (or on any failure), Chocolate Doom behaves exactly like upstream.
   2.32's window-aware Vulkan API is used when present).
 
 At build time CMake fetches a pinned copy of libslang-vk via FetchContent —
-not by release tag but by content hash: the tarball of the exact commit
-`M4.05` points at (`fa65b6d5`), verified by SHA256 at configure time (see
-`CMakeLists.txt`; tags are mutable, hashes are not). That in turn fetches
-glslang 16.6, Vulkan-Headers and volk. `ENABLE_VK_SHADERS=OFF` builds the
-stub path instead — no fetches, no C++, upstream-identical behavior.
+not by release tag but by immutable commit hash: the exact commit the
+current `M4.06` release tag points at (`09068b25`), named in
+`CMakeLists.txt`. A tag can be re-pointed upstream; a commit hash cannot.
+That in turn fetches glslang 16.6, Vulkan-Headers and volk.
+`ENABLE_VK_SHADERS=OFF` builds the stub path instead — no fetches,
+no C++, upstream-identical behavior.
 
 ## Building
 

@@ -1,0 +1,456 @@
+From c08edb0653c2e9052f2e5edc82f62ab8851843bf Mon Sep 17 00:00:00 2001
+From: Nigel Todman <veritas@vts-tech.org>
+Date: Wed, 21 Oct 2026 19:36:19 +0000
+Subject: [PATCH] vkwhy: name the Vulkan fallback, keep -shader authoritative
+
+The always-SDL2 mystery had three layers, all now closed:
+
+- libslang-vk M4.05 had bugs that failed the Vulkan path on real
+  drivers; M4.06 (pinned at 09068b25) fixes them.
+- When the path does fall back, the game never said why: every
+  failure exit of I_VK_AttemptGraphics now records a human-readable
+  reason, shown in the stats overlay's shader row ('crt.slangp
+  (unused: preset failed to load)') and echoed to stdout ('Vulkan
+  path inactive (...) - classic renderer'). stderr is invisible in
+  Windows GUI builds - exactly where fallbacks bite hardest.
+- A -novulkan run persists usevulkan = 0; later -shader <path> runs
+  then silently stayed classic. -shader on the command line is
+  explicit intent and now re-enables the path (and persists 1);
+  -novulkan still wins when both are given.
+
+Also: vcpkg.json requests sdl2[vulkan] (the vulkan feature is not
+in vcpkg's sdl2 defaults, so MSVC artifacts linked an SDL2 that
+could never present), the CMake pin comment now matches the M4.06
+git-commit-hash pin, and README-VK/CHANGELOG document all of it.
+
+Verified on Xvfb + lavapipe (scripts/vkwhy_test.sh): 17/17 -
+fallback reasons named and overlay-visible, -shader re-enable +
+persistence through graceful quit, -novulkan precedence,
+-vkcapture channel regression, M4.06 Vulkan path active.
+---
+ CHANGELOG.md     | 31 ++++++++++++++++++++++++------
+ CMakeLists.txt   | 15 +++++++--------
+ README-VK.md     | 11 ++++++-----
+ src/i_overlay.c  | 17 +++++++++++++---
+ src/i_video.c    | 41 ++++++++++++++++++++++++++-------------
+ src/i_video_vk.c | 50 ++++++++++++++++++++++++++++++++++++++++++++++++
+ src/i_video_vk.h |  6 ++++++
+ vcpkg.json       |  2 +-
+ 8 files changed, 137 insertions(+), 36 deletions(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 372b2645..dfddcf47 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -23,14 +23,33 @@ Versions: this repository's `v<N>` tags.
+ - This `CHANGELOG.md`.
+ 
+ ### Changed
+-- `libslang-vk` is now pinned by **content hash, not release tag**:
+-  CMake fetches the tarball of the exact commit `M4.05` points at
+-  (`fa65b6d5`) and verifies it by SHA256 at configure time
+-  (`URL_HASH` in `CMakeLists.txt`). A tag can be re-pointed or its
+-  archive regenerated upstream; a hash cannot drift. Same tested
+-  content as before — this is a supply-chain hardening change only.
++- `libslang-vk` bumped to **M4.06** (release commit `09068b25`): the
++  M4.05-era library had bugs that made the Vulkan path fail to start
++  on real drivers — the game silently fell back to the classic SDL2
++  renderer while the overlay still showed the configured shader.
++  M4.06 fixes them; the Vulkan path now starts as configured.
++- The dependency pin is now an **immutable commit hash, not a mutable
++  release tag** (`GIT_TAG 09068b25… # M4.06 Release` in
++  `CMakeLists.txt`). A tag can be re-pointed upstream; a commit hash
++  cannot. Bumping is always a deliberate hash swap.
+ 
+ ### Fixed
++- A silent-fallback trap: if an earlier `-novulkan` run persisted
++  `usevulkan = 0`, later runs with `-shader <path>` stayed on the
++  classic renderer with no indication why. Passing `-shader` on the
++  command line is explicit intent and now re-enables the Vulkan path
++  for that run (and persists `usevulkan = 1`); `-novulkan` still wins
++  when both are given.
++- Vulkan fallbacks are no longer invisible: every failure exit of
++  `I_VK_AttemptGraphics` records a human-readable reason, shown in
++  the stats overlay's shader row (`shader.slangp (unused: preset
++  failed to load)`) and echoed to stdout (`Vulkan path inactive
++  (…) — classic renderer`). stderr is invisible in Windows GUI
++  builds — exactly where fallbacks bite hardest.
++- MSVC/vcpkg builds linked an SDL2 **without** Vulkan support (the
++  `vulkan` feature of vcpkg's `sdl2` port is not in its defaults):
++  `vcpkg.json` now requests `sdl2[vulkan]`, so the CI artifact is
++  actually capable of the Vulkan path.
+ - `-vkcapture` screenshots came out blue-shifted. The readback
+   (`slangvk_device_read_pixels`) is a raw `vkCmdCopyImageToBuffer`, so
+   bytes arrive in the surface format's native packing: B8G8R8A8 memory
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 7c52b206..3cc8fbda 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -74,15 +74,14 @@ if(ENABLE_VK_SHADERS)
+     set(SLANGVK_BUILD_TESTS OFF)    # the upstream suite runs in its own repo
+     set(SLANGVK_BUILD_EXAMPLES OFF)
+     set(SLANGVK_BUILD_SHARED OFF)   # single static link into each game
+-    # Pinned by content hash, not by a mutable release tag: this is the
+-    # archive of the exact commit the M4.05 milestone tag points at
+-    # (fa65b6d5 — 26/26 ctest, byte-exact goldens), fetched by URL and
+-    # verified by SHA256 at configure time. A tag can be re-pointed (or
+-    # its archive regenerated) upstream; this pin cannot drift. To bump,
+-    # swap in the new archive URL plus its sha256 — always deliberate.
++    # Pinned by immutable commit hash, not by a mutable release tag:
++    # this is the exact commit the M4.06 release tag points at
++    # (09068b25). A tag can be re-pointed upstream; a commit hash
++    # cannot. To bump, swap in the new commit hash (and note the
++    # release) — always deliberate.
+     FetchContent_Declare(libslang-vk
+-    GIT_REPOSITORY https://github.com/VTSTech/libslang-vk.git
+-    GIT_TAG 09068b25407cd77739391bff2e2a249a743368e7 # M4.06 Release
++        GIT_REPOSITORY https://github.com/VTSTech/libslang-vk.git
++        GIT_TAG 09068b25407cd77739391bff2e2a249a743368e7 # M4.06 Release
+     )
+     FetchContent_MakeAvailable(libslang-vk)
+     # The library's targets require C++23 (its scope sets it for its own
+diff --git a/README-VK.md b/README-VK.md
+index 12c9c797..1f909c31 100644
+--- a/README-VK.md
++++ b/README-VK.md
+@@ -38,11 +38,12 @@ off (or on any failure), Chocolate Doom behaves exactly like upstream.
+   2.32's window-aware Vulkan API is used when present).
+ 
+ At build time CMake fetches a pinned copy of libslang-vk via FetchContent —
+-not by release tag but by content hash: the tarball of the exact commit
+-`M4.05` points at (`fa65b6d5`), verified by SHA256 at configure time (see
+-`CMakeLists.txt`; tags are mutable, hashes are not). That in turn fetches
+-glslang 16.6, Vulkan-Headers and volk. `ENABLE_VK_SHADERS=OFF` builds the
+-stub path instead — no fetches, no C++, upstream-identical behavior.
++not by release tag but by immutable commit hash: the exact commit the
++current `M4.06` release tag points at (`09068b25`), named in
++`CMakeLists.txt`. A tag can be re-pointed upstream; a commit hash cannot.
++That in turn fetches glslang 16.6, Vulkan-Headers and volk.
++`ENABLE_VK_SHADERS=OFF` builds the stub path instead — no fetches,
++no C++, upstream-identical behavior.
+ 
+ ## Building
+ 
+diff --git a/src/i_overlay.c b/src/i_overlay.c
+index 86607899..1619509f 100644
+--- a/src/i_overlay.c
++++ b/src/i_overlay.c
+@@ -311,9 +311,20 @@ static void OverlayShaderLine(char *dest, size_t dest_size)
+     passes = I_VK_PassCount();
+     if (!I_VK_Active())
+     {
+-        // A preset is configured but the Vulkan path did not start;
+-        // say so instead of silently implying it is in use.
+-        snprintf(raw, sizeof(raw), "%s (unused)", clipped);
++        // A preset is configured but the Vulkan path did not start; say
++        // why instead of silently implying it is in use (the reason comes
++        // from I_VK_FallbackReason — stderr is invisible on Windows GUI
++        // builds, so this row is often the only place it can be seen).
++        const char *reason = I_VK_FallbackReason();
++
++        if (reason[0] != '\0')
++        {
++            snprintf(raw, sizeof(raw), "%s (unused: %s)", clipped, reason);
++        }
++        else
++        {
++            snprintf(raw, sizeof(raw), "%s (unused)", clipped);
++        }
+     }
+     else if (passes > 0)
+     {
+diff --git a/src/i_video.c b/src/i_video.c
+index 3f3d369c..73eb40f1 100644
+--- a/src/i_video.c
++++ b/src/i_video.c
+@@ -471,7 +471,7 @@ void I_GetEvent(void)
+                 // deliberate fall-though
+ 
+             case SDL_KEYUP:
+-		I_HandleKeyboardEvent(&sdlevent);
++                I_HandleKeyboardEvent(&sdlevent);
+                 break;
+ 
+             case SDL_MOUSEBUTTONDOWN:
+@@ -787,15 +787,15 @@ void I_FinishUpdate (void)
+ 
+     if (display_fps_dots)
+     {
+-	i = I_GetTime();
+-	tics = i - lasttic;
+-	lasttic = i;
+-	if (tics > 20) tics = 20;
++        i = I_GetTime();
++        tics = i - lasttic;
++        lasttic = i;
++        if (tics > 20) tics = 20;
+ 
+-	for (i=0 ; i<tics*4 ; i+=4)
+-	    I_VideoBuffer[ (SCREENHEIGHT-1)*SCREENWIDTH + i] = 0xff;
+-	for ( ; i<20*4 ; i+=4)
+-	    I_VideoBuffer[ (SCREENHEIGHT-1)*SCREENWIDTH + i] = 0x0;
++        for (i=0 ; i<tics*4 ; i+=4)
++            I_VideoBuffer[ (SCREENHEIGHT-1)*SCREENWIDTH + i] = 0xff;
++        for ( ; i<20*4 ; i+=4)
++            I_VideoBuffer[ (SCREENHEIGHT-1)*SCREENWIDTH + i] = 0x0;
+     }
+ 
+     // Draw disk icon before blit, if necessary.
+@@ -1167,6 +1167,12 @@ void I_GraphicsCheckCommandLine(void)
+     if (i > 0)
+     {
+         shader_preset = myargv[i + 1];
++        // Asking for a shader on the command line is explicit intent:
++        // re-enable the Vulkan path even if an earlier -novulkan run
++        // persisted usevulkan = 0 in the config. (-novulkan below still
++        // wins when both are given, so forcing the classic renderer
++        // stays possible.)
++        usevulkan = 1;
+     }
+ 
+     //!
+@@ -1408,7 +1414,7 @@ static void SetVideoMode(void)
+     // The SDL_RENDERER_TARGETTEXTURE flag is required to render the
+     // intermediate texture into the upscaled texture.
+     renderer_flags = SDL_RENDERER_TARGETTEXTURE;
+-	
++        
+     if (SDL_GetCurrentDisplayMode(video_display, &mode) != 0)
+     {
+         I_Error("Could not get display mode for video display #%d: %s",
+@@ -1509,9 +1515,9 @@ static void SetVideoMode(void)
+ 
+     if (argbbuffer == NULL)
+     {
+-	    // pixels and pitch will be filled with the texture's values
+-	    // in I_FinishUpdate()
+-	    argbbuffer = SDL_CreateRGBSurfaceWithFormatFrom(
++            // pixels and pitch will be filled with the texture's values
++            // in I_FinishUpdate()
++            argbbuffer = SDL_CreateRGBSurfaceWithFormatFrom(
+                      NULL, w, h, 0, 0, SDL_PIXELFORMAT_ARGB8888);
+     }
+ 
+@@ -1603,6 +1609,15 @@ void I_InitGraphics(void)
+     AdjustWindowSize();
+     if (!I_VK_AttemptGraphics())
+     {
++        // A shader was requested but the Vulkan path did not start —
++        // say why (stdout survives `> log.txt` redirection on Windows,
++        // where GUI subsystem builds show no console at all; the same
++        // reason is mirrored in the stats overlay's shader row).
++        if (shader_preset != NULL && shader_preset[0] != '\0')
++        {
++            printf("I_VK: Vulkan path inactive (%s) — classic renderer\n",
++                   I_VK_FallbackReason());
++        }
+         SetVideoMode();
+     }
+ 
+diff --git a/src/i_video_vk.c b/src/i_video_vk.c
+index 30ef3172..3d4a96e6 100644
+--- a/src/i_video_vk.c
++++ b/src/i_video_vk.c
+@@ -105,6 +105,24 @@ int I_VK_PassCount(void)
+     return vk_pass_count;
+ }
+ 
++// Why the Vulkan path is not running: set at every failure exit of
++// I_VK_AttemptGraphics (and by the stub build below), shown in the
++// stats overlay's shader row so a fallback to the classic renderer is
++// never silent — stderr is invisible in Windows GUI builds, which is
++// exactly where these failures are most common (e.g. an SDL2 without
++// Vulkan support compiled in).
++static char vk_fallback_reason[96] = "";
++
++static void SetFallbackReason(const char *reason)
++{
++    M_StringCopy(vk_fallback_reason, reason, sizeof(vk_fallback_reason));
++}
++
++const char *I_VK_FallbackReason(void)
++{
++    return vk_active ? "" : vk_fallback_reason;
++}
++
+ // libslang-vk objects (destroy order per c.h: chain -> preset -> image ->
+ // device, with this file's own Vulkan objects torn down before the device).
+ static slangvk_device *vk_device = NULL;
+@@ -1028,8 +1046,17 @@ boolean I_VK_AttemptGraphics(void)
+     VkBool32 present_supported = VK_FALSE;
+     int feed_h;
+ 
++    SetFallbackReason("");
++
+     if (!usevulkan || shader_preset == NULL || shader_preset[0] == '\0')
+     {
++        if (!usevulkan)
++        {
++            // Explicitly off for this run (a -novulkan run persists
++            // usevulkan = 0). Say so: without this the fallback is
++            // indistinguishable from a failure.
++            SetFallbackReason("usevulkan = 0");
++        }
+         return false;         // VK path not requested — classic renderer
+     }
+ 
+@@ -1039,6 +1066,7 @@ boolean I_VK_AttemptGraphics(void)
+     //    SetVideoMode() reuses or recreates it).
+     if (!CreateVKWindow())
+     {
++        SetFallbackReason("window creation failed");
+         return false;
+     }
+ 
+@@ -1046,6 +1074,7 @@ boolean I_VK_AttemptGraphics(void)
+     {
+         fprintf(stderr, "I_VK: SDL_Vulkan_LoadLibrary failed: %s\n",
+                 SDL_GetError());
++        SetFallbackReason("SDL2 has no Vulkan support");
+         I_VK_ShutdownGraphics();
+         return false;
+     }
+@@ -1055,6 +1084,7 @@ boolean I_VK_AttemptGraphics(void)
+         || ext_count == 0)
+     {
+         fprintf(stderr, "I_VK: SDL_Vulkan_GetInstanceExtensions failed\n");
++        SetFallbackReason("SDL2 lacks Vulkan windowing");
+         I_VK_ShutdownGraphics();
+         return false;
+     }
+@@ -1063,6 +1093,7 @@ boolean I_VK_AttemptGraphics(void)
+         || SDL_Vulkan_GetInstanceExtensions(screen, &ext_count, inst_exts) == SDL_FALSE)
+     {
+         fprintf(stderr, "I_VK: SDL_Vulkan_GetInstanceExtensions failed\n");
++        SetFallbackReason("SDL2 lacks Vulkan windowing");
+         free(inst_exts);
+         I_VK_ShutdownGraphics();
+         return false;
+@@ -1083,6 +1114,7 @@ boolean I_VK_AttemptGraphics(void)
+     {
+         fprintf(stderr, "I_VK: slangvk_device_create failed: %s\n",
+                 slangvk_last_error());
++        SetFallbackReason("Vulkan device init failed");
+         free(inst_exts);
+         I_VK_ShutdownGraphics();
+         return false;
+@@ -1094,12 +1126,14 @@ boolean I_VK_AttemptGraphics(void)
+                                    &vk_ldevice, &vk_queue, &vk_family) != SLANGVK_OK)
+     {
+         fprintf(stderr, "I_VK: slangvk_device_get_handles failed\n");
++        SetFallbackReason("Vulkan device init failed");
+         I_VK_ShutdownGraphics();
+         return false;
+     }
+ 
+     if (!LoadVulkanFunctions())
+     {
++        SetFallbackReason("Vulkan entry points missing");
+         I_VK_ShutdownGraphics();
+         return false;
+     }
+@@ -1109,6 +1143,7 @@ boolean I_VK_AttemptGraphics(void)
+     {
+         fprintf(stderr, "I_VK: SDL_Vulkan_CreateSurface failed: %s\n",
+                 SDL_GetError());
++        SetFallbackReason("Vulkan surface creation failed");
+         I_VK_ShutdownGraphics();
+         return false;
+     }
+@@ -1118,6 +1153,7 @@ boolean I_VK_AttemptGraphics(void)
+     if (present_supported != VK_TRUE)
+     {
+         fprintf(stderr, "I_VK: graphics queue does not present to this surface\n");
++        SetFallbackReason("GPU cannot present to window");
+         I_VK_ShutdownGraphics();
+         return false;
+     }
+@@ -1125,6 +1161,7 @@ boolean I_VK_AttemptGraphics(void)
+     // 5) Swapchain (mirrors the reference host's choices).
+     if (!CreateSwapchain())
+     {
++        SetFallbackReason("swapchain creation failed");
+         I_VK_ShutdownGraphics();
+         return false;
+     }
+@@ -1140,6 +1177,7 @@ boolean I_VK_AttemptGraphics(void)
+     {
+         fprintf(stderr, "I_VK: slangvk_image_create failed: %s\n",
+                 slangvk_last_error());
++        SetFallbackReason("Vulkan image creation failed");
+         I_VK_ShutdownGraphics();
+         return false;
+     }
+@@ -1149,6 +1187,7 @@ boolean I_VK_AttemptGraphics(void)
+     {
+         fprintf(stderr, "I_VK: failed to load preset '%s': %s\n",
+                 shader_preset, slangvk_last_error());
++        SetFallbackReason("preset failed to load");
+         I_VK_ShutdownGraphics();
+         return false;
+     }
+@@ -1162,6 +1201,7 @@ boolean I_VK_AttemptGraphics(void)
+     {
+         fprintf(stderr, "I_VK: slangvk_chain_create failed: %s\n",
+                 slangvk_last_error());
++        SetFallbackReason("shader chain creation failed");
+         I_VK_ShutdownGraphics();
+         return false;
+     }
+@@ -1172,6 +1212,7 @@ boolean I_VK_AttemptGraphics(void)
+     I_VideoBuffer = malloc(SCREENWIDTH * SCREENHEIGHT);
+     if (I_VideoBuffer == NULL)
+     {
++        SetFallbackReason("out of memory");
+         I_VK_ShutdownGraphics();
+         return false;
+     }
+@@ -1212,6 +1253,15 @@ boolean I_VK_AttemptGraphics(void)
+ 
+ boolean I_VK_Active(void)                { return false; }
+ boolean I_VK_AttemptGraphics(void)       { return false; }
++
++const char *I_VK_FallbackReason(void)
++{
++    // The feature was compiled out entirely; if a shader was requested
++    // the overlay should still be able to explain itself.
++    return (usevulkan && shader_preset != NULL && shader_preset[0] != '\0')
++        ? "built without VK support" : "";
++}
++
+ void I_VK_SetPalette(const SDL_Color *palette) { (void) palette; }
+ void I_VK_FlagResize(void)               { }
+ void I_VK_ToggleAspect(void)             { }
+diff --git a/src/i_video_vk.h b/src/i_video_vk.h
+index 28891a19..9f785324 100644
+--- a/src/i_video_vk.h
++++ b/src/i_video_vk.h
+@@ -66,6 +66,12 @@ boolean I_VK_Active(void);
+ const char *I_VK_DeviceName(void);
+ int I_VK_PassCount(void);
+ 
++// Human-readable reason the Vulkan path fell back to the classic
++// renderer ("" while it is running, or when it was never requested).
++// Shown in the stats overlay's shader row — stderr is invisible in
++// Windows GUI builds, which is exactly where fallbacks bite hardest.
++const char *I_VK_FallbackReason(void);
++
+ // Effective shader-chain input size (the base canvas: feed size x base
+ // multiplier) and the base multiplier itself, for the stats overlay.
+ // Native feed size / 1 when the Vulkan path is not running (or compiled
+diff --git a/vcpkg.json b/vcpkg.json
+index 84b5f59a..bd876601 100644
+--- a/vcpkg.json
++++ b/vcpkg.json
+@@ -3,7 +3,7 @@
+   "version-string": "3.1.1",
+   "builtin-baseline": "9e593bb18ea69cc5095e012465dcd675a822ed0d",
+   "dependencies": [
+-    "sdl2",
++    "sdl2[vulkan]",
+     "sdl2-mixer",
+     "sdl2-net",
+     "libpng",
+-- 
+2.47.3
+

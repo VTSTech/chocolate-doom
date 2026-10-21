@@ -66,6 +66,12 @@ boolean I_VK_Active(void);
 const char *I_VK_DeviceName(void);
 int I_VK_PassCount(void);
 
+// Human-readable reason the Vulkan path fell back to the classic
+// renderer ("" while it is running, or when it was never requested).
+// Shown in the stats overlay's shader row — stderr is invisible in
+// Windows GUI builds, which is exactly where fallbacks bite hardest.
+const char *I_VK_FallbackReason(void);
+
 // Effective shader-chain input size (the base canvas: feed size x base
 // multiplier) and the base multiplier itself, for the stats overlay.
 // Native feed size / 1 when the Vulkan path is not running (or compiled
