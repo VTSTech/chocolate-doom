@@ -82,7 +82,7 @@ if(ENABLE_VK_SHADERS)
     # swap in the new archive URL plus its sha256 — always deliberate.
     FetchContent_Declare(libslang-vk
     GIT_REPOSITORY https://github.com/VTSTech/libslang-vk.git
-    GIT_TAG 5f41dd19cd6e4a4984d3475559a2328ef5a8d729 # M4.06+ codebase-audit
+    GIT_TAG 83e850be99fbc74c866f3b9a3c47e64761260209 # M4.06+ codebase-audit
     )
     FetchContent_MakeAvailable(libslang-vk)
     # The library's targets require C++23 (its scope sets it for its own
