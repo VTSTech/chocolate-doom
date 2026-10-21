@@ -37,6 +37,14 @@ extern int vk_debug;
 // validates the full present pipeline without screen-grab tooling).
 extern int vk_capture_frame;
 
+// Shader base resolution (config "shader_base_resolution" + -vkbase <n>):
+// the canvas size handed to the shader chain, DevilutionX-style. The feed
+// is nearest-neighbor upscaled by an integer factor before the preset runs,
+// giving upscaler / anti-aliasing presets input-to-output headroom. Values:
+// 0 = auto (native 1x); 1..4 = the multiplier directly; larger values are
+// pixel widths (320xk: 640 = 2x, 960 = 3x, 1280 = 4x). Vulkan path only.
+extern int shader_base_resolution;
+
 // --- shared state owned by i_video.c ---
 // The VK presenter creates the window straight into `screen` (so the
 // classic event pump / title / shutdown paths keep working unmodified)
@@ -57,6 +65,13 @@ boolean I_VK_Active(void);
 // out).
 const char *I_VK_DeviceName(void);
 int I_VK_PassCount(void);
+
+// Effective shader-chain input size (the base canvas: feed size x base
+// multiplier) and the base multiplier itself, for the stats overlay.
+// Native feed size / 1 when the Vulkan path is not running (or compiled
+// out).
+void I_VK_FeedSize(int *w, int *h);
+int I_VK_BaseScale(void);
 
 // --- hooks called from i_video.c ---
 

@@ -756,6 +756,16 @@ static default_t extra_defaults_list[] =
     CONFIG_VARIABLE_STRING(shader),
 
     //!
+    // Shader base resolution (DevilutionX-style): the canvas size fed
+    // to the Vulkan shader chain, as a pixel width. 0 or 320 = native
+    // (320x240, or 320x200 raw); 640 = doubled; 960 = tripled; 1280 =
+    // quadrupled. The frame is nearest-neighbor upscaled to this size
+    // before the preset runs. Vulkan path only. (Chocolate Doom VK)
+    //
+
+    CONFIG_VARIABLE_INT(shader_base_resolution),
+
+    //!
     // If non-zero, show the on-screen stats overlay (FPS,
     // graphics backend, active shader). Scroll Lock toggles
     // it at runtime. (Chocolate Doom VK)

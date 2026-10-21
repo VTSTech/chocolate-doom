@@ -12,8 +12,10 @@
 //
 //   I_VideoBuffer (320x200, PLAYPAL indices, CPU-rasterized by the engine)
 //       | palette LUT expand  (+ 6:5 nearest stretch when 4:3-corrected)
+//       | + k-fold nearest base upscale (shader_base_resolution / -vkbase,
+//       |   the DevilutionX "Shader Base Resolution" analog)
 //       v
-//   RGBA8 320x240/320x200  --slangvk_image_update-->  input image
+//   RGBA8 320x240*k / 320x200*k  --slangvk_image_update-->  input image
 //       | slangvk_chain_render_swapchain (preset pass chain, letterboxed
 //       | by the library onto the swapchain image, M4 output mode (a))
 //       v
@@ -56,6 +58,7 @@ int usevulkan = 1;              // master switch (default on)
 char *shader_preset = "";       // activation: setting a preset activates VK
 int vk_debug = 0;              // -vkdebug: validation layers
 int vk_capture_frame = 0;       // -vkcapture <n>: dump frame n as vkframe.tga
+int shader_base_resolution = 0; // -vkbase: base canvas size (0=auto, 320xk)
 
 // window_width/window_height/fullscreen_width/fullscreen_height are
 // declared in i_video.h (this file includes it): cross-file declarations
@@ -128,8 +131,18 @@ static boolean vk_swap_transfer_src = false;
 // 240-entry source-row map for the 4:3 stretch, and the staging buffer.
 static unsigned char vk_lut[256][4];
 static int vk_rowmap[SCREENHEIGHT_4_3];
-static unsigned char *vk_staging = NULL;   // SCREENWIDTH * 240 * 4 max
+static unsigned char *vk_staging = NULL;   // base_width * base_height * 4
 static size_t vk_staging_bytes = 0;
+
+// Shader base resolution: the effective integer multiplier (1..4) the
+// feed is nearest-neighbor upscaled by before the preset chain runs.
+// Resolved once at startup from shader_base_resolution; the chain then
+// re-derives every pass FBO from the per-frame input size, so no other
+// state depends on it (libslang-vk M4 contract, same as the aspect
+// toggle). The cap keeps the CPU staging copy and the input-space
+// shader cost bounded (4x = 1280x960 = 4.9 MB RGBA per frame).
+#define VK_BASE_MAX_MULT 4
+static int vk_base_mult = 1;
 
 // Frame accounting for slangvk_frame_info.
 static uint64_t vk_frame_count = 0;
@@ -471,6 +484,68 @@ static int VKFeedHeight(void)
     return aspect_ratio_correct ? SCREENHEIGHT_4_3 : SCREENHEIGHT;
 }
 
+// The shader-chain input canvas: the feed duplicated k-fold (nearest,
+// pixel-perfect, DevilutionX "Shader Base Resolution" analog).
+static int VKBaseWidth(void)
+{
+    return SCREENWIDTH * vk_base_mult;
+}
+
+static int VKBaseHeight(void)
+{
+    return VKFeedHeight() * vk_base_mult;
+}
+
+// Resolve the configured base size into the effective integer multiplier
+// (1..VK_BASE_MAX_MULT). Accepted forms: 0 = auto (native), a multiplier
+// directly (what -vkbase 2 passes), or a pixel width (what the config
+// stores, e.g. shader_base_resolution 640). Out-of-range values clamp to
+// the nearest bound; the effective choice is printed at startup.
+static void ResolveBaseMultiplier(void)
+{
+    int mult = 1;
+
+    if (shader_base_resolution > 0 && shader_base_resolution <= VK_BASE_MAX_MULT)
+    {
+        mult = shader_base_resolution;          // multiplier form: 1..4
+    }
+    else if (shader_base_resolution > VK_BASE_MAX_MULT)
+    {
+        mult = shader_base_resolution / SCREENWIDTH;    // width form: 640 -> 2
+    }
+
+    if (mult < 1)
+    {
+        mult = 1;
+    }
+    if (mult > VK_BASE_MAX_MULT)
+    {
+        mult = VK_BASE_MAX_MULT;
+    }
+    vk_base_mult = mult;
+}
+
+// Effective chain-input canvas for the stats overlay (i_overlay.c):
+// the base size while the Vulkan path runs, the native feed otherwise.
+void I_VK_FeedSize(int *w, int *h)
+{
+    const int mult = vk_active ? vk_base_mult : 1;
+
+    if (w != NULL)
+    {
+        *w = SCREENWIDTH * mult;
+    }
+    if (h != NULL)
+    {
+        *h = VKFeedHeight() * mult;
+    }
+}
+
+int I_VK_BaseScale(void)
+{
+    return vk_active ? vk_base_mult : 1;
+}
+
 static void BuildRowmap(void)
 {
     int y;
@@ -486,9 +561,9 @@ static void BuildRowmap(void)
     }
 }
 
-// (Re)create the input image at the current feed size. Aspect toggles flip
-// 320x240 <-> 320x200; the chain re-derives its FBOs and history ring from
-// the per-frame input size on the next render (libslang-vk M2 contract).
+// (Re)create the input image at the current base size. Aspect toggles flip
+// 320x240 <-> 320x200 (x k); the chain re-derives its FBOs and history ring
+// from the per-frame input size on the next render (libslang-vk M2 contract).
 static void EnsureInputImage(void)
 {
     slangvk_image_options io;
@@ -497,7 +572,7 @@ static void EnsureInputImage(void)
     {
         VkImageView view; VkImage img; VkFormat fmt; uint32_t w, h;
         if (slangvk_image_get_handles(vk_input, &view, &img, &fmt, &w, &h) == SLANGVK_OK
-            && w == (uint32_t) SCREENWIDTH && h == (uint32_t) VKFeedHeight())
+            && w == (uint32_t) VKBaseWidth() && h == (uint32_t) VKBaseHeight())
         {
             return;
         }
@@ -506,8 +581,8 @@ static void EnsureInputImage(void)
     }
 
     memset(&io, 0, sizeof(io));
-    io.width = SCREENWIDTH;
-    io.height = VKFeedHeight();
+    io.width = VKBaseWidth();
+    io.height = VKBaseHeight();
     io.format = VK_FORMAT_R8G8B8A8_UNORM;
     io.final_layout = 0;       // SHADER_READ_ONLY_OPTIMAL (c.h default)
 
@@ -517,11 +592,20 @@ static void EnsureInputImage(void)
     }
 }
 
+// Palette-LUT-expand the frame into the staging buffer at the base size.
+// The 6:5 aspect stretch (rowmap) happens first in row space; the base
+// upscale then duplicates each expanded row k times and each pixel k times
+// within the row (pure nearest: game pixels stay exact k x k blocks). One
+// LUT pass writes the first row of each k-row block, memcpy fills the rest
+// — at 4x that is 3.7 MB of the 4.9 MB frame as memcpy. k = 1 reduces to
+// the original single-pass expansion.
 static void ExpandFrame(void)
 {
-    const int dst_h = VKFeedHeight();
-    const size_t bytes = (size_t) SCREENWIDTH * dst_h * 4;
-    int x, y;
+    const int feed_h = VKFeedHeight();
+    const int mult = vk_base_mult;
+    const size_t row_bytes = (size_t) SCREENWIDTH * mult * 4;
+    const size_t bytes = row_bytes * (size_t) (feed_h * mult);
+    int x, y, rep;
 
     if (vk_staging_bytes < bytes)
     {
@@ -534,15 +618,24 @@ static void ExpandFrame(void)
         vk_staging_bytes = bytes;
     }
 
-    for (y = 0; y < dst_h; ++y)
+    for (y = 0; y < feed_h; ++y)
     {
         const byte *src = I_VideoBuffer + (size_t) vk_rowmap[y] * SCREENWIDTH;
-        unsigned char *dst = vk_staging + (size_t) y * SCREENWIDTH * 4;
+        unsigned char *row = vk_staging + (size_t) y * mult * row_bytes;
+        unsigned char *dst = row;
+
         for (x = 0; x < SCREENWIDTH; ++x)
         {
             const unsigned char *c = vk_lut[src[x]];
-            dst[0] = c[0]; dst[1] = c[1]; dst[2] = c[2]; dst[3] = c[3];
-            dst += 4;
+            for (rep = 0; rep < mult; ++rep)
+            {
+                dst[0] = c[0]; dst[1] = c[1]; dst[2] = c[2]; dst[3] = c[3];
+                dst += 4;
+            }
+        }
+        for (rep = 1; rep < mult; ++rep)
+        {
+            memcpy(row + (size_t) rep * row_bytes, row, row_bytes);
         }
     }
 
@@ -758,10 +851,9 @@ void I_VK_ToggleAspect(void)
 {
     aspect_ratio_correct = !aspect_ratio_correct;
     BuildRowmap();
-    printf("I_VK: aspect correction %s — feed %dx%d\n",
-           aspect_ratio_correct ? "ON (320x240, authentic 4:3)"
-                                : "OFF (raw 320x200)",
-           SCREENWIDTH, VKFeedHeight());
+    printf("I_VK: aspect correction %s — feed %dx%d, base %dx%d\n",
+           aspect_ratio_correct ? "ON (authentic 4:3)" : "OFF (raw square pixels)",
+           SCREENWIDTH, VKFeedHeight(), VKBaseWidth(), VKBaseHeight());
     // EnsureInputImage() picks the new size up on the next frame.
 }
 
@@ -844,6 +936,8 @@ boolean I_VK_AttemptGraphics(void)
     {
         return false;         // VK path not requested — classic renderer
     }
+
+    ResolveBaseMultiplier();
 
     // 1) Window (becomes i_video.c's `screen`; on failure the classic
     //    SetVideoMode() reuses or recreates it).
@@ -939,11 +1033,12 @@ boolean I_VK_AttemptGraphics(void)
         return false;
     }
 
-    // 6) Input image at the feed size (320x240 corrected / 320x200 raw).
+    // 6) Input image at the base size (feed x base multiplier; the chain
+    //    re-derives every pass FBO from this per-frame input size).
     feed_h = VKFeedHeight();
     memset(&io, 0, sizeof(io));
-    io.width = SCREENWIDTH;
-    io.height = feed_h;
+    io.width = VKBaseWidth();
+    io.height = VKBaseHeight();
     io.format = VK_FORMAT_R8G8B8A8_UNORM;
     if (slangvk_image_create(vk_device, &io, &vk_input) != SLANGVK_OK)
     {
@@ -1001,9 +1096,17 @@ boolean I_VK_AttemptGraphics(void)
         printf("I_VK: libslang-vk active — '%s' (%u passes)\n",
                shader_preset, pass_count);
     }
-    printf("I_VK: feed %dx%d (%s), swapchain %ux%u, present FIFO\n",
+    if (vk_base_mult > 1)
+    {
+        printf("I_VK: shader base resolution %dx — feed %dx%d -> base %dx%d "
+               "(DevilutionX-style pre-scale before the preset chain)\n",
+               vk_base_mult, SCREENWIDTH, feed_h,
+               VKBaseWidth(), VKBaseHeight());
+    }
+    printf("I_VK: feed %dx%d (%s), base %dx%d, swapchain %ux%u, present FIFO\n",
            SCREENWIDTH, feed_h,
            aspect_ratio_correct ? "4:3 corrected" : "raw",
+           VKBaseWidth(), VKBaseHeight(),
            vk_swap_extent.width, vk_swap_extent.height);
 
     return true;
@@ -1020,6 +1123,12 @@ void I_VK_FinishUpdate(void)             { }
 void I_VK_ShutdownGraphics(void)         { }
 const char *I_VK_DeviceName(void)        { return ""; }
 int I_VK_PassCount(void)                 { return 0; }
+void I_VK_FeedSize(int *w, int *h)
+{
+    if (w != NULL) { *w = SCREENWIDTH; }
+    if (h != NULL) { *h = SCREENHEIGHT; }
+}
+int I_VK_BaseScale(void)                 { return 1; }
 
 #endif  // ENABLE_VK_SHADERS
 

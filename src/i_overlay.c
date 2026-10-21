@@ -12,6 +12,7 @@
 //                               renderer + video driver + window size
 //   row 3: active shader      — preset path + pass count, or why not
 //   row 4: rate               — smoothed FPS + frame time + feed mode
+//                              (native, or the enlarged shader base canvas)
 //
 // The text is rendered with an embedded 8x8 bitmap font (font8x8 by
 // Daniel Hepper / Marcel Sondaar / IBM, public domain) directly in
@@ -315,6 +316,33 @@ static void OverlayShaderLine(char *dest, size_t dest_size)
     OverlayClip(dest, dest_size, raw);
 }
 
+// Feed mode tag: the canvas the shader chain sees — native 320x240/320x200,
+// or the enlarged base (shader_base_resolution / -vkbase) while the Vulkan
+// path runs, e.g. "640x480 4:3 (2x)".
+static void OverlayModeLine(char *dest, size_t dest_size)
+{
+    int w = SCREENWIDTH;
+    int h = aspect_ratio_correct ? SCREENHEIGHT_4_3 : SCREENHEIGHT;
+    int scale = 1;
+
+    if (I_VK_Active())
+    {
+        I_VK_FeedSize(&w, &h);
+        scale = I_VK_BaseScale();
+    }
+
+    if (scale > 1)
+    {
+        snprintf(dest, dest_size, "%dx%d %s (%dx)",
+                 w, h, aspect_ratio_correct ? "4:3" : "1:1", scale);
+    }
+    else
+    {
+        snprintf(dest, dest_size, "%dx%d %s",
+                 w, h, aspect_ratio_correct ? "4:3" : "1:1");
+    }
+}
+
 // ------------------------------------------------------------------
 // Public entry points
 // ------------------------------------------------------------------
@@ -387,14 +415,18 @@ void I_OverlayDraw(void)
 
     if (overlay_ema_ms > 0.0)
     {
+        char mode[32];
+
+        OverlayModeLine(mode, sizeof(mode));
         snprintf(lines[nlines++], sizeof(lines[0]), "%.1f fps | %.2f ms | %s",
-                 1000.0 / overlay_ema_ms, overlay_ema_ms,
-                 aspect_ratio_correct ? "320x240 4:3" : "320x200 1:1");
+                 1000.0 / overlay_ema_ms, overlay_ema_ms, mode);
     }
     else
     {
-        snprintf(lines[nlines++], sizeof(lines[0]), "-- fps | %s",
-                 aspect_ratio_correct ? "320x240 4:3" : "320x200 1:1");
+        char mode[32];
+
+        OverlayModeLine(mode, sizeof(mode));
+        snprintf(lines[nlines++], sizeof(lines[0]), "-- fps | %s", mode);
     }
 
     // --- palette-matched colors (survive gamma and pain tints) ---

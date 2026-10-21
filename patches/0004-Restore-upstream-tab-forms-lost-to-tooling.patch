@@ -1,0 +1,161 @@
+From c84dfaa5cf57a199d0c8fa7483f15e6c64ee0371 Mon Sep 17 00:00:00 2001
+From: "VTSTech (Nigel Todman)" <veritas@vts-tech.org>
+Date: Wed, 21 Oct 2026 04:31:43 +0000
+Subject: [PATCH 4/6] Restore upstream tab forms lost to tooling
+
+The editing tooling expanded tab characters to spaces in every file
+it rewrote. Content is unchanged; restore the exact master bytes on
+lines we never edited (13 in i_video.c, 10 in m_config.c including
+the escaped tab inside a debug printf string, 1 in
+src/CMakeLists.txt) so the fork's diff against upstream stays minimal
+for future merges.
+---
+ src/CMakeLists.txt |  2 +-
+ src/i_video.c      | 26 +++++++++++++-------------
+ src/m_config.c     | 20 ++++++++++----------
+ 3 files changed, 24 insertions(+), 24 deletions(-)
+
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index aacf44b8..74b35900 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -159,7 +159,7 @@ if(FluidSynth_FOUND)
+     list(APPEND EXTRA_LIBS FluidSynth::libfluidsynth)
+ endif()
+ if(WIN32)
+-        list(APPEND EXTRA_LIBS winmm shlwapi)
++	list(APPEND EXTRA_LIBS winmm shlwapi)
+ endif()
+ 
+ # Chocolate Doom VK: the shader-presenter library (present in every game
+diff --git a/src/i_video.c b/src/i_video.c
+index 36ecdb05..e0f80577 100644
+--- a/src/i_video.c
++++ b/src/i_video.c
+@@ -453,7 +453,7 @@ void I_GetEvent(void)
+                 // deliberate fall-though
+ 
+             case SDL_KEYUP:
+-                I_HandleKeyboardEvent(&sdlevent);
++		I_HandleKeyboardEvent(&sdlevent);
+                 break;
+ 
+             case SDL_MOUSEBUTTONDOWN:
+@@ -769,15 +769,15 @@ void I_FinishUpdate (void)
+ 
+     if (display_fps_dots)
+     {
+-        i = I_GetTime();
+-        tics = i - lasttic;
+-        lasttic = i;
+-        if (tics > 20) tics = 20;
++	i = I_GetTime();
++	tics = i - lasttic;
++	lasttic = i;
++	if (tics > 20) tics = 20;
+ 
+-        for (i=0 ; i<tics*4 ; i+=4)
+-            I_VideoBuffer[ (SCREENHEIGHT-1)*SCREENWIDTH + i] = 0xff;
+-        for ( ; i<20*4 ; i+=4)
+-            I_VideoBuffer[ (SCREENHEIGHT-1)*SCREENWIDTH + i] = 0x0;
++	for (i=0 ; i<tics*4 ; i+=4)
++	    I_VideoBuffer[ (SCREENHEIGHT-1)*SCREENWIDTH + i] = 0xff;
++	for ( ; i<20*4 ; i+=4)
++	    I_VideoBuffer[ (SCREENHEIGHT-1)*SCREENWIDTH + i] = 0x0;
+     }
+ 
+     // Draw disk icon before blit, if necessary.
+@@ -1358,7 +1358,7 @@ static void SetVideoMode(void)
+     // The SDL_RENDERER_TARGETTEXTURE flag is required to render the
+     // intermediate texture into the upscaled texture.
+     renderer_flags = SDL_RENDERER_TARGETTEXTURE;
+-        
++	
+     if (SDL_GetCurrentDisplayMode(video_display, &mode) != 0)
+     {
+         I_Error("Could not get display mode for video display #%d: %s",
+@@ -1459,9 +1459,9 @@ static void SetVideoMode(void)
+ 
+     if (argbbuffer == NULL)
+     {
+-            // pixels and pitch will be filled with the texture's values
+-            // in I_FinishUpdate()
+-            argbbuffer = SDL_CreateRGBSurfaceWithFormatFrom(
++	    // pixels and pitch will be filled with the texture's values
++	    // in I_FinishUpdate()
++	    argbbuffer = SDL_CreateRGBSurfaceWithFormatFrom(
+                      NULL, w, h, 0, 0, SDL_PIXELFORMAT_ARGB8888);
+     }
+ 
+diff --git a/src/m_config.c b/src/m_config.c
+index 332d4edf..f1cc869e 100644
+--- a/src/m_config.c
++++ b/src/m_config.c
+@@ -2145,13 +2145,13 @@ static void SaveDefaultCollection(default_collection_t *collection)
+     default_t *defaults;
+     int i, v;
+     FILE *f;
+-        
++	
+     f = M_fopen(collection->filename, "w");
+     if (!f)
+-        return; // can't write the file, but don't complain
++	return; // can't write the file, but don't complain
+ 
+     defaults = collection->defaults;
+-                
++		
+     for (i=0 ; i<collection->numdefaults ; i++)
+     {
+         int chars_written;
+@@ -2217,15 +2217,15 @@ static void SaveDefaultCollection(default_collection_t *collection)
+                     }
+                 }
+ 
+-                fprintf(f, "%i", v);
++	        fprintf(f, "%i", v);
+                 break;
+ 
+             case DEFAULT_INT:
+-                fprintf(f, "%i", *defaults[i].location.i);
++	        fprintf(f, "%i", *defaults[i].location.i);
+                 break;
+ 
+             case DEFAULT_INT_HEX:
+-                fprintf(f, "0x%x", *defaults[i].location.i);
++	        fprintf(f, "0x%x", *defaults[i].location.i);
+                 break;
+ 
+             case DEFAULT_FLOAT:
+@@ -2233,7 +2233,7 @@ static void SaveDefaultCollection(default_collection_t *collection)
+                 break;
+ 
+             case DEFAULT_STRING:
+-                fprintf(f,"\"%s\"", *defaults[i].location.s);
++	        fprintf(f,"\"%s\"", *defaults[i].location.s);
+                 break;
+         }
+ 
+@@ -2463,8 +2463,8 @@ void M_LoadDefaults (void)
+ 
+     if (i)
+     {
+-        doom_defaults.filename = myargv[i+1];
+-        printf ("       default file: %s\n",doom_defaults.filename);
++	doom_defaults.filename = myargv[i+1];
++	printf ("	default file: %s\n",doom_defaults.filename);
+     }
+     else
+     {
+@@ -2774,7 +2774,7 @@ char *M_GetSaveGameDir(const char *iwadname)
+     // a savegame directory, either.
+     else if (!strcmp(configdir, exedir))
+     {
+-        savegamedir = M_StringDuplicate("");
++	savegamedir = M_StringDuplicate("");
+     }
+     else
+     {
+-- 
+2.47.3
+

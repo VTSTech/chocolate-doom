@@ -1193,6 +1193,23 @@ void I_GraphicsCheckCommandLine(void)
 
     //!
     // @category video
+    // @arg <n>
+    //
+    // Shader base resolution (DevilutionX-style): integer multiplier
+    // for the canvas fed to the shader chain. 1 = native 320x240 (or
+    // 320x200 raw); 2, 3, 4 = doubled, tripled, quadrupled (640x480,
+    // 960x720, 1280x960). A pixel width (320..1280) is also accepted.
+    // Vulkan path only; ignored by the classic renderer.
+    //
+
+    i = M_CheckParmWithArgs("-vkbase", 1);
+    if (i > 0)
+    {
+        shader_base_resolution = atoi(myargv[i + 1]);
+    }
+
+    //!
+    // @category video
     // @arg <frame>
     //
     // Capture that presented frame to vkframe.tga (Vulkan path debug aid).
@@ -1662,4 +1679,5 @@ void I_BindVideoVariables(void)
     M_BindIntVariable("usevulkan",                  &usevulkan);
     M_BindStringVariable("shader",                   &shader_preset);
     M_BindIntVariable("vkstats",                    &vkstats);
+    M_BindIntVariable("shader_base_resolution",  &shader_base_resolution);
 }

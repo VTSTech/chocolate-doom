@@ -1,0 +1,594 @@
+From c1e39662698f573f8137cac45dcd382f1da6c750 Mon Sep 17 00:00:00 2001
+From: "VTSTech (Nigel Todman)" <veritas@vts-tech.org>
+Date: Wed, 21 Oct 2026 07:01:14 +0000
+Subject: [PATCH 6/6] Add shader base resolution (-vkbase /
+ shader_base_resolution)
+
+DevilutionX-style dual-resolution model for the Vulkan presenter: the
+window/swapchain keeps Chocolate Doom's regular sizing while the canvas
+handed to the slang chain can be independently enlarged 2x/3x/4x.
+
+- feed is duplicated k-fold (exact k x k nearest blocks, no new detail)
+  after the palette LUT expansion and before the preset chain runs
+- chain input image + staging sized feed x k (cap 4: 1280x960); the
+  chain re-derives every pass FBO from the per-frame input size, so
+  upscaler presets (HQx, ScaleFX) get real input-to-output headroom
+- one LUT pass per source row + memcpy for the k-1 duplicates
+- -vkbase <n> accepts the multiplier (2/3/4) or a pixel width
+  (640/960/1280); config key shader_base_resolution (0 = native)
+- startup log prints the effective choice; F11 aspect toggle composes
+  (base follows the feed); stats overlay row 4 shows the live canvas
+  (e.g. "640x480 4:3 (2x)")
+
+Validated on lavapipe: six-run matrix (1x/2x/width-form/headroom/4x+
+validation layers/config-seeded 3x), overlay decoded from every
+capture, content equivalence vs the 1x baseline (mean diff <= 9.9/255;
+scan-corrected ratio median exactly 1.000 at 3x), zero validation
+messages at 4x, timedemo throughput ~294/211/157/117 fps at 1x/2x/3x/4x.
+---
+ README-VK.md     |  80 +++++++++++++++++++++++-
+ src/i_overlay.c  |  40 ++++++++++--
+ src/i_video.c    |  18 ++++++
+ src/i_video_vk.c | 155 ++++++++++++++++++++++++++++++++++++++++-------
+ src/i_video_vk.h |  15 +++++
+ src/m_config.c   |  10 +++
+ 6 files changed, 288 insertions(+), 30 deletions(-)
+
+diff --git a/README-VK.md b/README-VK.md
+index adf5e4f3..7e00af53 100644
+--- a/README-VK.md
++++ b/README-VK.md
+@@ -64,6 +64,7 @@ build/src/chocolate-doom -iwad DOOM.WAD -shader /path/to/crt-easymode.slangp
+ # "name  value" format, no '=' sign, like the rest of Chocolate Doom):
+ #   shader                     "/path/to/crt-easymode.slangp"
+ #   usevulkan                  1
++#   shader_base_resolution     640        # 2x base canvas (see below)
+ ```
+ 
+ Setting `shader` (config or `-shader <path>`) is what activates the
+@@ -76,6 +77,7 @@ point `shader` at any `.slangp` in it; `-shader` accepts any path.
+ | `-shader <path>` | Run this `.slangp` through the chain (persist in `shader` config key) |
+ | `-novulkan` | Force the classic SDL2 renderer for this run (`usevulkan = 0` persists) |
+ | `-noaspect` | Feed raw 320x200 (16:10) instead of the authentic 4:3 stretch |
++| `-vkbase <n>` | Shader base resolution: 2/3/4 = doubled/tripled/quadrupled chain input (or a pixel width, e.g. `640`); persists in `shader_base_resolution` |
+ | **F11** (in-game) | Toggle 4:3 ↔ raw aspect live; feed re-creates, chain re-derives |
+ | **Scroll Lock** (in-game) | Toggle the stats overlay (below) |
+ | `-novkstats` | Start with the stats overlay off (`vkstats = 0` persists) |
+@@ -103,8 +105,9 @@ crt/crt-easymode.slangp | 3 passes
+   that failed to start is shown as `(unused)`, `no shader` when none is
+   set.
+ - Row 4 is the smoothed frame rate and frame time, plus the feed mode
+-  (`320x240 4:3` or `320x200 1:1`, the same state F11 flips). Under
+-  normal play the engine caps rendering at its 35 Hz tic rate — that
++  (`320x240 4:3` or `320x200 1:1`, the same state F11 flips; with a base
++  multiplier active it shows the enlarged canvas, e.g. `640x480 4:3 (2x)`).
++  Under normal play the engine caps rendering at its 35 Hz tic rate — that
+   cap is what the counter honestly reports; `-timedemo` shows real
+   throughput (several hundred fps on lavapipe, for example).
+ 
+@@ -128,6 +131,63 @@ a 6:5 nearest row stretch to 320×240 so CRT geometry and bezel presets see
+ the authentic shape (this is what libslang-vk's aspect-corrected viewport
+ derives its letterbox from — SPEC F6). F11 flips the two modes at runtime.
+ 
++## Shader base resolution (double / triple / quadruple)
++
++DevilutionX's libslang-vk integration exposes two independent knobs: the
++**Game Resolution** (the window/swapchain the chain presents to) and the
++**Shader Base Resolution** (the canvas the chain consumes). This fork has
++the same split — the window side is Chocolate Doom's regular `-2`/`-3`/
++`-width`/`-height`/fullscreen handling, and the base side is new:
++
++```sh
++# 2x  base canvas (feed 320x240 -> chain input 640x480):
++build/src/chocolate-doom -iwad DOOM.WAD -shader crt/crtglow_lanczos.slangp -vkbase 2
++
++# 3x / 4x (960x720 / 1280x960 chain input), or a pixel width — same thing:
++... -vkbase 3
++... -vkbase 1280
++
++# Config-file form (persisted like every other VK option):
++#   shader_base_resolution     960
++```
++
++What it does: after the palette LUT expansion (and the 4:3 stretch when
++enabled), the frame is duplicated k-fold — each game pixel becomes an exact
++k×k block, pure nearest-neighbor, no new detail — and *that* image is what
++the preset chain sees. The chain re-derives every pass FBO from the input
++size, so a `2xScaleHQ` fed a 640×480 base really does its 2x work at 2x
++game scale, and the final pass maps the result onto the window as before.
++
++Why you'd want it:
++
++- **Upscaler headroom on small windows.** Presets designed around
++  input < output (ScaleFX, HQx, xBR variants) have more room to work
++  with a bigger base — the same reason DevilutionX ships a base-size
++  setting. On a huge window it matters less (the ratio is already large).
++- **Anti-aliasing / sharpening presets** (FXAA, advanced AA) behave
++  better with more pixels to smooth: at native 320×240 they can blur the
++  whole frame, at 2–3x they work at a finer granularity.
++- **CRT masks / scanline presets** that compute in input space get a
++  finer pixel grid; output-space presets are unaffected.
++
++Trade-offs: it is a real upscale — heavier input-space presets cost more
++GPU time per frame (input-space work scales with k²; on the lavapipe
++software rasterizer a 1-pass preset went ~294 → ~211 fps at 2x, ~157 at
++3x — real GPUs have far more headroom), and the CPU staging copy grows
++(k×k duplication, one `memcpy` per row block — measured in microseconds).
++The multiplier is capped at 4 (1280×960) to bound staging memory and
++shader cost. `0` (the default) and `320` mean native 1x — the exact
++pre-v0.2 look. Vulkan path only; `-novulkan` runs ignore it. The startup
++log prints the effective choice:
++
++```
++I_VK: shader base resolution 2x — feed 320x240 -> base 640x480 (DevilutionX-style pre-scale before the preset chain)
++I_VK: feed 320x240 (4:3 corrected), base 640x480, swapchain 1920x1080, present FIFO
++```
++
++The F11 aspect toggle composes with it (base follows the feed: 640×480 ↔
++640×400), and the overlay's mode row always shows the live canvas.
++
+ ## Debug aids
+ 
+ `-vkcapture <n>` reads back the n-th presented frame straight off the
+@@ -144,7 +204,7 @@ back to the classic SDL2 renderer for that run. A failure *after* the
+ chain is live (device lost, render error) is fatal with the library's
+ message, via `I_Error`. The games' own sources stay C99 throughout.
+ 
+-## Validation performed (2026-10-21, this fork @ v0.1.1-vk)
++## Validation performed (2026-10-21; v0.1.1-vk, base-resolution at v0.2.0)
+ 
+ - libslang-vk M4.05 standalone: 18/18 ctest on lavapipe (incl. the M4
+   swapchain-presentation test and the C API test).
+@@ -153,6 +213,20 @@ message, via `I_Error`. The games' own sources stay C99 throughout.
+   at ~284 fps, frame 240 captured via `-vkcapture`, differential check
+   across two different presets (mean abs diff 22/255, 98% of pixels
+   changed — the chain demonstrably processes the frame).
++- Shader base resolution (v0.2.0): six-run matrix on lavapipe — 1x
++  baseline, `-vkbase 2` / `-vkbase 640` (multiplier and width forms,
++  byte-identical output: mean diff 0.28/255), `-window -3 -vkbase 2`
++  (960x720 window, real upscaler headroom), `-vkbase 4 -vkdebug` (zero
++  validation messages), and a config-seeded `shader_base_resolution 960`
++  (3x). Overlay decoded glyph-by-glyph from every capture: the mode row
++  reads `320x240 4:3`, `640x480 4:3 (2x)`, `960x720 4:3 (3x)`,
++  `1280x960 4:3 (4x)` exactly as configured. Content equivalence at 2x
++  and 4x: mean abs diff vs the 1x capture 9.9 / 9.2 out of 255 (final-pass
++  sampling phase only); at 3x (a 3:2 output ratio, the worst case for the
++  test preset's synthetic scanlines) the scan-factor-corrected per-channel
++  ratio median is exactly 1.000 — identical scene structure. Timedemo
++  throughput on lavapipe: ~294 / ~211 / ~157 / ~117 fps at 1x / 2x / 3x /
++  4x (input-space cost scales with k², as expected).
+ - Zero Vulkan validation messages across a full `-vkdebug` session.
+ - F11 aspect toggle exercised live mid-demo: feed re-created 320x240 →
+   320x200, chain re-derived, and the presentation letterbox switched
+diff --git a/src/i_overlay.c b/src/i_overlay.c
+index bfb922ee..9dc71bfd 100644
+--- a/src/i_overlay.c
++++ b/src/i_overlay.c
+@@ -12,6 +12,7 @@
+ //                               renderer + video driver + window size
+ //   row 3: active shader      — preset path + pass count, or why not
+ //   row 4: rate               — smoothed FPS + frame time + feed mode
++//                              (native, or the enlarged shader base canvas)
+ //
+ // The text is rendered with an embedded 8x8 bitmap font (font8x8 by
+ // Daniel Hepper / Marcel Sondaar / IBM, public domain) directly in
+@@ -315,6 +316,33 @@ static void OverlayShaderLine(char *dest, size_t dest_size)
+     OverlayClip(dest, dest_size, raw);
+ }
+ 
++// Feed mode tag: the canvas the shader chain sees — native 320x240/320x200,
++// or the enlarged base (shader_base_resolution / -vkbase) while the Vulkan
++// path runs, e.g. "640x480 4:3 (2x)".
++static void OverlayModeLine(char *dest, size_t dest_size)
++{
++    int w = SCREENWIDTH;
++    int h = aspect_ratio_correct ? SCREENHEIGHT_4_3 : SCREENHEIGHT;
++    int scale = 1;
++
++    if (I_VK_Active())
++    {
++        I_VK_FeedSize(&w, &h);
++        scale = I_VK_BaseScale();
++    }
++
++    if (scale > 1)
++    {
++        snprintf(dest, dest_size, "%dx%d %s (%dx)",
++                 w, h, aspect_ratio_correct ? "4:3" : "1:1", scale);
++    }
++    else
++    {
++        snprintf(dest, dest_size, "%dx%d %s",
++                 w, h, aspect_ratio_correct ? "4:3" : "1:1");
++    }
++}
++
+ // ------------------------------------------------------------------
+ // Public entry points
+ // ------------------------------------------------------------------
+@@ -387,14 +415,18 @@ void I_OverlayDraw(void)
+ 
+     if (overlay_ema_ms > 0.0)
+     {
++        char mode[32];
++
++        OverlayModeLine(mode, sizeof(mode));
+         snprintf(lines[nlines++], sizeof(lines[0]), "%.1f fps | %.2f ms | %s",
+-                 1000.0 / overlay_ema_ms, overlay_ema_ms,
+-                 aspect_ratio_correct ? "320x240 4:3" : "320x200 1:1");
++                 1000.0 / overlay_ema_ms, overlay_ema_ms, mode);
+     }
+     else
+     {
+-        snprintf(lines[nlines++], sizeof(lines[0]), "-- fps | %s",
+-                 aspect_ratio_correct ? "320x240 4:3" : "320x200 1:1");
++        char mode[32];
++
++        OverlayModeLine(mode, sizeof(mode));
++        snprintf(lines[nlines++], sizeof(lines[0]), "-- fps | %s", mode);
+     }
+ 
+     // --- palette-matched colors (survive gamma and pain tints) ---
+diff --git a/src/i_video.c b/src/i_video.c
+index 7cce77bb..20344d49 100644
+--- a/src/i_video.c
++++ b/src/i_video.c
+@@ -1191,6 +1191,23 @@ void I_GraphicsCheckCommandLine(void)
+         aspect_ratio_correct = 0;
+     }
+ 
++    //!
++    // @category video
++    // @arg <n>
++    //
++    // Shader base resolution (DevilutionX-style): integer multiplier
++    // for the canvas fed to the shader chain. 1 = native 320x240 (or
++    // 320x200 raw); 2, 3, 4 = doubled, tripled, quadrupled (640x480,
++    // 960x720, 1280x960). A pixel width (320..1280) is also accepted.
++    // Vulkan path only; ignored by the classic renderer.
++    //
++
++    i = M_CheckParmWithArgs("-vkbase", 1);
++    if (i > 0)
++    {
++        shader_base_resolution = atoi(myargv[i + 1]);
++    }
++
+     //!
+     // @category video
+     // @arg <frame>
+@@ -1662,4 +1679,5 @@ void I_BindVideoVariables(void)
+     M_BindIntVariable("usevulkan",                  &usevulkan);
+     M_BindStringVariable("shader",                   &shader_preset);
+     M_BindIntVariable("vkstats",                    &vkstats);
++    M_BindIntVariable("shader_base_resolution",  &shader_base_resolution);
+ }
+\ No newline at end of file
+diff --git a/src/i_video_vk.c b/src/i_video_vk.c
+index 6074a338..87aa45f0 100644
+--- a/src/i_video_vk.c
++++ b/src/i_video_vk.c
+@@ -12,8 +12,10 @@
+ //
+ //   I_VideoBuffer (320x200, PLAYPAL indices, CPU-rasterized by the engine)
+ //       | palette LUT expand  (+ 6:5 nearest stretch when 4:3-corrected)
++//       | + k-fold nearest base upscale (shader_base_resolution / -vkbase,
++//       |   the DevilutionX "Shader Base Resolution" analog)
+ //       v
+-//   RGBA8 320x240/320x200  --slangvk_image_update-->  input image
++//   RGBA8 320x240*k / 320x200*k  --slangvk_image_update-->  input image
+ //       | slangvk_chain_render_swapchain (preset pass chain, letterboxed
+ //       | by the library onto the swapchain image, M4 output mode (a))
+ //       v
+@@ -56,6 +58,7 @@ int usevulkan = 1;              // master switch (default on)
+ char *shader_preset = "";       // activation: setting a preset activates VK
+ int vk_debug = 0;              // -vkdebug: validation layers
+ int vk_capture_frame = 0;       // -vkcapture <n>: dump frame n as vkframe.tga
++int shader_base_resolution = 0; // -vkbase: base canvas size (0=auto, 320xk)
+ 
+ // window_width/window_height/fullscreen_width/fullscreen_height are
+ // declared in i_video.h (this file includes it): cross-file declarations
+@@ -128,9 +131,19 @@ static boolean vk_swap_transfer_src = false;
+ // 240-entry source-row map for the 4:3 stretch, and the staging buffer.
+ static unsigned char vk_lut[256][4];
+ static int vk_rowmap[SCREENHEIGHT_4_3];
+-static unsigned char *vk_staging = NULL;   // SCREENWIDTH * 240 * 4 max
++static unsigned char *vk_staging = NULL;   // base_width * base_height * 4
+ static size_t vk_staging_bytes = 0;
+ 
++// Shader base resolution: the effective integer multiplier (1..4) the
++// feed is nearest-neighbor upscaled by before the preset chain runs.
++// Resolved once at startup from shader_base_resolution; the chain then
++// re-derives every pass FBO from the per-frame input size, so no other
++// state depends on it (libslang-vk M4 contract, same as the aspect
++// toggle). The cap keeps the CPU staging copy and the input-space
++// shader cost bounded (4x = 1280x960 = 4.9 MB RGBA per frame).
++#define VK_BASE_MAX_MULT 4
++static int vk_base_mult = 1;
++
+ // Frame accounting for slangvk_frame_info.
+ static uint64_t vk_frame_count = 0;
+ static uint64_t vk_last_pc = 0;
+@@ -471,6 +484,68 @@ static int VKFeedHeight(void)
+     return aspect_ratio_correct ? SCREENHEIGHT_4_3 : SCREENHEIGHT;
+ }
+ 
++// The shader-chain input canvas: the feed duplicated k-fold (nearest,
++// pixel-perfect, DevilutionX "Shader Base Resolution" analog).
++static int VKBaseWidth(void)
++{
++    return SCREENWIDTH * vk_base_mult;
++}
++
++static int VKBaseHeight(void)
++{
++    return VKFeedHeight() * vk_base_mult;
++}
++
++// Resolve the configured base size into the effective integer multiplier
++// (1..VK_BASE_MAX_MULT). Accepted forms: 0 = auto (native), a multiplier
++// directly (what -vkbase 2 passes), or a pixel width (what the config
++// stores, e.g. shader_base_resolution 640). Out-of-range values clamp to
++// the nearest bound; the effective choice is printed at startup.
++static void ResolveBaseMultiplier(void)
++{
++    int mult = 1;
++
++    if (shader_base_resolution > 0 && shader_base_resolution <= VK_BASE_MAX_MULT)
++    {
++        mult = shader_base_resolution;          // multiplier form: 1..4
++    }
++    else if (shader_base_resolution > VK_BASE_MAX_MULT)
++    {
++        mult = shader_base_resolution / SCREENWIDTH;    // width form: 640 -> 2
++    }
++
++    if (mult < 1)
++    {
++        mult = 1;
++    }
++    if (mult > VK_BASE_MAX_MULT)
++    {
++        mult = VK_BASE_MAX_MULT;
++    }
++    vk_base_mult = mult;
++}
++
++// Effective chain-input canvas for the stats overlay (i_overlay.c):
++// the base size while the Vulkan path runs, the native feed otherwise.
++void I_VK_FeedSize(int *w, int *h)
++{
++    const int mult = vk_active ? vk_base_mult : 1;
++
++    if (w != NULL)
++    {
++        *w = SCREENWIDTH * mult;
++    }
++    if (h != NULL)
++    {
++        *h = VKFeedHeight() * mult;
++    }
++}
++
++int I_VK_BaseScale(void)
++{
++    return vk_active ? vk_base_mult : 1;
++}
++
+ static void BuildRowmap(void)
+ {
+     int y;
+@@ -486,9 +561,9 @@ static void BuildRowmap(void)
+     }
+ }
+ 
+-// (Re)create the input image at the current feed size. Aspect toggles flip
+-// 320x240 <-> 320x200; the chain re-derives its FBOs and history ring from
+-// the per-frame input size on the next render (libslang-vk M2 contract).
++// (Re)create the input image at the current base size. Aspect toggles flip
++// 320x240 <-> 320x200 (x k); the chain re-derives its FBOs and history ring
++// from the per-frame input size on the next render (libslang-vk M2 contract).
+ static void EnsureInputImage(void)
+ {
+     slangvk_image_options io;
+@@ -497,7 +572,7 @@ static void EnsureInputImage(void)
+     {
+         VkImageView view; VkImage img; VkFormat fmt; uint32_t w, h;
+         if (slangvk_image_get_handles(vk_input, &view, &img, &fmt, &w, &h) == SLANGVK_OK
+-            && w == (uint32_t) SCREENWIDTH && h == (uint32_t) VKFeedHeight())
++            && w == (uint32_t) VKBaseWidth() && h == (uint32_t) VKBaseHeight())
+         {
+             return;
+         }
+@@ -506,8 +581,8 @@ static void EnsureInputImage(void)
+     }
+ 
+     memset(&io, 0, sizeof(io));
+-    io.width = SCREENWIDTH;
+-    io.height = VKFeedHeight();
++    io.width = VKBaseWidth();
++    io.height = VKBaseHeight();
+     io.format = VK_FORMAT_R8G8B8A8_UNORM;
+     io.final_layout = 0;       // SHADER_READ_ONLY_OPTIMAL (c.h default)
+ 
+@@ -517,11 +592,20 @@ static void EnsureInputImage(void)
+     }
+ }
+ 
++// Palette-LUT-expand the frame into the staging buffer at the base size.
++// The 6:5 aspect stretch (rowmap) happens first in row space; the base
++// upscale then duplicates each expanded row k times and each pixel k times
++// within the row (pure nearest: game pixels stay exact k x k blocks). One
++// LUT pass writes the first row of each k-row block, memcpy fills the rest
++// — at 4x that is 3.7 MB of the 4.9 MB frame as memcpy. k = 1 reduces to
++// the original single-pass expansion.
+ static void ExpandFrame(void)
+ {
+-    const int dst_h = VKFeedHeight();
+-    const size_t bytes = (size_t) SCREENWIDTH * dst_h * 4;
+-    int x, y;
++    const int feed_h = VKFeedHeight();
++    const int mult = vk_base_mult;
++    const size_t row_bytes = (size_t) SCREENWIDTH * mult * 4;
++    const size_t bytes = row_bytes * (size_t) (feed_h * mult);
++    int x, y, rep;
+ 
+     if (vk_staging_bytes < bytes)
+     {
+@@ -534,15 +618,24 @@ static void ExpandFrame(void)
+         vk_staging_bytes = bytes;
+     }
+ 
+-    for (y = 0; y < dst_h; ++y)
++    for (y = 0; y < feed_h; ++y)
+     {
+         const byte *src = I_VideoBuffer + (size_t) vk_rowmap[y] * SCREENWIDTH;
+-        unsigned char *dst = vk_staging + (size_t) y * SCREENWIDTH * 4;
++        unsigned char *row = vk_staging + (size_t) y * mult * row_bytes;
++        unsigned char *dst = row;
++
+         for (x = 0; x < SCREENWIDTH; ++x)
+         {
+             const unsigned char *c = vk_lut[src[x]];
+-            dst[0] = c[0]; dst[1] = c[1]; dst[2] = c[2]; dst[3] = c[3];
+-            dst += 4;
++            for (rep = 0; rep < mult; ++rep)
++            {
++                dst[0] = c[0]; dst[1] = c[1]; dst[2] = c[2]; dst[3] = c[3];
++                dst += 4;
++            }
++        }
++        for (rep = 1; rep < mult; ++rep)
++        {
++            memcpy(row + (size_t) rep * row_bytes, row, row_bytes);
+         }
+     }
+ 
+@@ -758,10 +851,9 @@ void I_VK_ToggleAspect(void)
+ {
+     aspect_ratio_correct = !aspect_ratio_correct;
+     BuildRowmap();
+-    printf("I_VK: aspect correction %s — feed %dx%d\n",
+-           aspect_ratio_correct ? "ON (320x240, authentic 4:3)"
+-                                : "OFF (raw 320x200)",
+-           SCREENWIDTH, VKFeedHeight());
++    printf("I_VK: aspect correction %s — feed %dx%d, base %dx%d\n",
++           aspect_ratio_correct ? "ON (authentic 4:3)" : "OFF (raw square pixels)",
++           SCREENWIDTH, VKFeedHeight(), VKBaseWidth(), VKBaseHeight());
+     // EnsureInputImage() picks the new size up on the next frame.
+ }
+ 
+@@ -845,6 +937,8 @@ boolean I_VK_AttemptGraphics(void)
+         return false;         // VK path not requested — classic renderer
+     }
+ 
++    ResolveBaseMultiplier();
++
+     // 1) Window (becomes i_video.c's `screen`; on failure the classic
+     //    SetVideoMode() reuses or recreates it).
+     if (!CreateVKWindow())
+@@ -939,11 +1033,12 @@ boolean I_VK_AttemptGraphics(void)
+         return false;
+     }
+ 
+-    // 6) Input image at the feed size (320x240 corrected / 320x200 raw).
++    // 6) Input image at the base size (feed x base multiplier; the chain
++    //    re-derives every pass FBO from this per-frame input size).
+     feed_h = VKFeedHeight();
+     memset(&io, 0, sizeof(io));
+-    io.width = SCREENWIDTH;
+-    io.height = feed_h;
++    io.width = VKBaseWidth();
++    io.height = VKBaseHeight();
+     io.format = VK_FORMAT_R8G8B8A8_UNORM;
+     if (slangvk_image_create(vk_device, &io, &vk_input) != SLANGVK_OK)
+     {
+@@ -1001,9 +1096,17 @@ boolean I_VK_AttemptGraphics(void)
+         printf("I_VK: libslang-vk active — '%s' (%u passes)\n",
+                shader_preset, pass_count);
+     }
+-    printf("I_VK: feed %dx%d (%s), swapchain %ux%u, present FIFO\n",
++    if (vk_base_mult > 1)
++    {
++        printf("I_VK: shader base resolution %dx — feed %dx%d -> base %dx%d "
++               "(DevilutionX-style pre-scale before the preset chain)\n",
++               vk_base_mult, SCREENWIDTH, feed_h,
++               VKBaseWidth(), VKBaseHeight());
++    }
++    printf("I_VK: feed %dx%d (%s), base %dx%d, swapchain %ux%u, present FIFO\n",
+            SCREENWIDTH, feed_h,
+            aspect_ratio_correct ? "4:3 corrected" : "raw",
++           VKBaseWidth(), VKBaseHeight(),
+            vk_swap_extent.width, vk_swap_extent.height);
+ 
+     return true;
+@@ -1020,6 +1123,12 @@ void I_VK_FinishUpdate(void)             { }
+ void I_VK_ShutdownGraphics(void)         { }
+ const char *I_VK_DeviceName(void)        { return ""; }
+ int I_VK_PassCount(void)                 { return 0; }
++void I_VK_FeedSize(int *w, int *h)
++{
++    if (w != NULL) { *w = SCREENWIDTH; }
++    if (h != NULL) { *h = SCREENHEIGHT; }
++}
++int I_VK_BaseScale(void)                 { return 1; }
+ 
+ #endif  // ENABLE_VK_SHADERS
+ 
+diff --git a/src/i_video_vk.h b/src/i_video_vk.h
+index 3773a92a..96b12688 100644
+--- a/src/i_video_vk.h
++++ b/src/i_video_vk.h
+@@ -37,6 +37,14 @@ extern int vk_debug;
+ // validates the full present pipeline without screen-grab tooling).
+ extern int vk_capture_frame;
+ 
++// Shader base resolution (config "shader_base_resolution" + -vkbase <n>):
++// the canvas size handed to the shader chain, DevilutionX-style. The feed
++// is nearest-neighbor upscaled by an integer factor before the preset runs,
++// giving upscaler / anti-aliasing presets input-to-output headroom. Values:
++// 0 = auto (native 1x); 1..4 = the multiplier directly; larger values are
++// pixel widths (320xk: 640 = 2x, 960 = 3x, 1280 = 4x). Vulkan path only.
++extern int shader_base_resolution;
++
+ // --- shared state owned by i_video.c ---
+ // The VK presenter creates the window straight into `screen` (so the
+ // classic event pump / title / shutdown paths keep working unmodified)
+@@ -58,6 +66,13 @@ boolean I_VK_Active(void);
+ const char *I_VK_DeviceName(void);
+ int I_VK_PassCount(void);
+ 
++// Effective shader-chain input size (the base canvas: feed size x base
++// multiplier) and the base multiplier itself, for the stats overlay.
++// Native feed size / 1 when the Vulkan path is not running (or compiled
++// out).
++void I_VK_FeedSize(int *w, int *h);
++int I_VK_BaseScale(void);
++
+ // --- hooks called from i_video.c ---
+ 
+ // From I_InitGraphics: try to take over (window + device + swapchain +
+diff --git a/src/m_config.c b/src/m_config.c
+index d2e4bd6c..b10f0451 100644
+--- a/src/m_config.c
++++ b/src/m_config.c
+@@ -755,6 +755,16 @@ static default_t extra_defaults_list[] =
+ 
+     CONFIG_VARIABLE_STRING(shader),
+ 
++    //!
++    // Shader base resolution (DevilutionX-style): the canvas size fed
++    // to the Vulkan shader chain, as a pixel width. 0 or 320 = native
++    // (320x240, or 320x200 raw); 640 = doubled; 960 = tripled; 1280 =
++    // quadrupled. The frame is nearest-neighbor upscaled to this size
++    // before the preset runs. Vulkan path only. (Chocolate Doom VK)
++    //
++
++    CONFIG_VARIABLE_INT(shader_base_resolution),
++
+     //!
+     // If non-zero, show the on-screen stats overlay (FPS,
+     // graphics backend, active shader). Scroll Lock toggles
+-- 
+2.47.3
+

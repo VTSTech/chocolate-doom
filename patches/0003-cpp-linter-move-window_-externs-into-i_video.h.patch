@@ -1,0 +1,63 @@
+From 6f3fda62bd1d14f7e0947707b351d3634e845e61 Mon Sep 17 00:00:00 2001
+From: "VTSTech (Nigel Todman)" <veritas@vts-tech.org>
+Date: Wed, 21 Oct 2026 04:31:43 +0000
+Subject: [PATCH 3/6] cpp-linter: move window_* externs into i_video.h
+
+check-extern.sh rejects any 'extern' declaration in .c files (the
+cpp-linter gate that failed on the fork). The four window-sizing
+globals now live in i_video.h next to the other video externs;
+i_video_vk.c already includes that header.
+---
+ src/i_video.h    | 9 ++++++++-
+ src/i_video_vk.c | 8 +++-----
+ 2 files changed, 11 insertions(+), 6 deletions(-)
+
+diff --git a/src/i_video.h b/src/i_video.h
+index d98b8f50..98794c65 100644
+--- a/src/i_video.h
++++ b/src/i_video.h
+@@ -13,7 +13,7 @@
+ // GNU General Public License for more details.
+ //
+ // DESCRIPTION:
+-//	System specific interface stuff.
++//      System specific interface stuff.
+ //
+ 
+ 
+@@ -96,6 +96,13 @@ extern int smooth_pixel_scaling;
+ extern int vga_porch_flash;
+ extern int force_software_renderer;
+ 
++// Window sizing, owned by i_video.c (config-bound there); the Vulkan
++// presenter (i_video_vk.c) mirrors these for its swapchain bookkeeping.
++extern int window_width;
++extern int window_height;
++extern int fullscreen_width;
++extern int fullscreen_height;
++
+ extern int png_screenshots;
+ 
+ extern char *window_position;
+diff --git a/src/i_video_vk.c b/src/i_video_vk.c
+index 2ec860d2..07638ff2 100644
+--- a/src/i_video_vk.c
++++ b/src/i_video_vk.c
+@@ -57,11 +57,9 @@ char *shader_preset = "";       // activation: setting a preset activates VK
+ int vk_debug = 0;              // -vkdebug: validation layers
+ int vk_capture_frame = 0;       // -vkcapture <n>: dump frame n as vkframe.tga
+ 
+-// Window geometry/config owned by i_video.c but not in i_video.h:
+-extern int window_width;
+-extern int window_height;
+-extern int fullscreen_width;
+-extern int fullscreen_height;
++// window_width/window_height/fullscreen_width/fullscreen_height are
++// declared in i_video.h (this file includes it): cross-file declarations
++// belong in headers, not .c files — that is the repo's style gate.
+ 
+ #ifdef ENABLE_VK_SHADERS
+ 
+-- 
+2.47.3
+
