@@ -6,6 +6,7 @@ endforeach()
 
 set(COMMON_SOURCE_FILES
     i_main.c
+    i_log.c              i_log.h
     i_system.c           i_system.h
     m_argv.c             m_argv.h
     m_misc.c             m_misc.h)
@@ -166,8 +167,10 @@ endif()
 
 # Chocolate Doom VK: the shader-presenter library (present in every game
 # binary; i_video_vk.c degrades to no-op stubs when ENABLE_VK_SHADERS is off).
+# Shared build (see the root CMakeLists): the games link the DLL and a
+# POST_BUILD step below copies it next to each executable.
 if(ENABLE_VK_SHADERS)
-    list(APPEND EXTRA_LIBS slangvk::slangvk)
+    list(APPEND EXTRA_LIBS slangvk::shared)
 endif()
 
 if(WIN32)
@@ -230,6 +233,20 @@ if(MSVC)
                           LINK_FLAGS "/MANIFEST:NO")
 endif()
 
+# Chocolate Doom VK: put libslang-vk.dll next to each game executable so
+# the build tree runs out of the box (the DLL has no dependencies beyond
+# the CRT — glslang, volk and VMA are inside it). $<TARGET_FILE_DIR:...>
+# follows each exe wherever the generator puts it, per-configuration.
+if(ENABLE_VK_SHADERS AND TARGET slangvk-shared)
+    foreach(VK_GAME doom heretic hexen strife)
+        add_custom_command(TARGET "${PROGRAM_PREFIX}${VK_GAME}" POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "$<TARGET_FILE:slangvk-shared>"
+                    "$<TARGET_FILE_DIR:${PROGRAM_PREFIX}${VK_GAME}>"
+            COMMENT "Copying libslang-vk next to ${PROGRAM_PREFIX}${VK_GAME}")
+    endforeach()
+endif()
+
 # Source files needed for chocolate-setup:
 
 set(SETUP_FILES
@@ -275,7 +292,7 @@ if (DEFINED EMSCRIPTEN)
     set_target_properties("${PROGRAM_PREFIX}hexen" PROPERTIES LINK_FLAGS "${SDL_FLAGS} -s ALLOW_MEMORY_GROWTH=1 -s ASYNCIFY=1 -s EXPORTED_FUNCTIONS=_main,ccall,cwrap,FS,ENV,PATH,ERRNO_CODES")
 endif()
 
-add_executable(midiread midifile.c z_native.c i_system.c m_argv.c m_misc.c d_iwad.c deh_str.c m_config.c)
+add_executable(midiread midifile.c z_native.c i_system.c i_log.c m_argv.c m_misc.c d_iwad.c deh_str.c m_config.c)
 target_compile_definitions(midiread PRIVATE "-DTEST")
 target_include_directories(midiread PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/../")
 if (DEFINED EMSCRIPTEN)
@@ -285,7 +302,7 @@ else()
     target_link_libraries(midiread SDL2::SDL2)
 endif()
 
-add_executable(mus2mid mus2mid.c memio.c z_native.c i_system.c m_argv.c m_misc.c d_iwad.c deh_str.c m_config.c)
+add_executable(mus2mid mus2mid.c memio.c z_native.c i_system.c i_log.c m_argv.c m_misc.c d_iwad.c deh_str.c m_config.c)
 target_compile_definitions(mus2mid PRIVATE "-DSTANDALONE")
 target_include_directories(mus2mid PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/../")
 if (DEFINED EMSCRIPTEN)

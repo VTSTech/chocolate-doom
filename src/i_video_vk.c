@@ -47,6 +47,7 @@
 #include "i_system.h"
 #include "i_video.h"
 #include "i_video_vk.h"
+#include "i_log.h"
 #include "i_overlay.h"
 #include "i_vk_cache.h"
 #include "m_argv.h"
@@ -118,6 +119,16 @@ static char vk_fallback_reason[96] = "";
 static void SetFallbackReason(const char *reason)
 {
     M_StringCopy(vk_fallback_reason, reason, sizeof(vk_fallback_reason));
+
+    // Every fallback exit funnels through here — one guaranteed line
+    // in gpu-scaler.log no matter which step gave up (some exits have
+    // no stderr message of their own, e.g. "out of memory"). The
+    // clear at the top of I_VK_AttemptGraphics passes "" and stays
+    // silent.
+    if (reason[0] != '\0')
+    {
+        I_LogMessage("Vulkan path inactive: %s\n", reason);
+    }
 }
 
 const char *I_VK_FallbackReason(void)
@@ -204,7 +215,7 @@ static boolean LoadVulkanFunctions(void)
         (PFN_vkGetInstanceProcAddr) (uintptr_t) SDL_Vulkan_GetVkGetInstanceProcAddr();
     if (vkGetInstanceProcAddr_ == NULL)
     {
-        fprintf(stderr, "I_VK: SDL_Vulkan_GetVkGetInstanceProcAddr returned NULL "
+        I_LogError("I_VK: SDL_Vulkan_GetVkGetInstanceProcAddr returned NULL "
                         "(no Vulkan loader available?)\n");
         return false;
     }
@@ -215,7 +226,7 @@ static boolean LoadVulkanFunctions(void)
         vkGetInstanceProcAddr_(vk_instance, "vkGetDeviceProcAddr");
     if (vkGetDeviceProcAddr_ == NULL)
     {
-        fprintf(stderr, "I_VK: failed to resolve vkGetDeviceProcAddr\n");
+        I_LogError("I_VK: failed to resolve vkGetDeviceProcAddr\n");
         return false;
     }
 
@@ -225,7 +236,7 @@ static boolean LoadVulkanFunctions(void)
         fn##_ = (PFN_##fn) vkGetDeviceProcAddr_(vk_ldevice, #fn);          \
         if (fn##_ == NULL)                                                  \
         {                                                                   \
-            fprintf(stderr, "I_VK: failed to resolve %s\n", #fn);           \
+            I_LogError("I_VK: failed to resolve %s\n", #fn);           \
             return false;                                                   \
         }                                                                   \
     } while (0)
@@ -236,7 +247,7 @@ static boolean LoadVulkanFunctions(void)
         fn##_ = (PFN_##fn) vkGetInstanceProcAddr_(vk_instance, #fn);        \
         if (fn##_ == NULL)                                                  \
         {                                                                   \
-            fprintf(stderr, "I_VK: failed to resolve %s\n", #fn);           \
+            I_LogError("I_VK: failed to resolve %s\n", #fn);           \
             return false;                                                   \
         }                                                                   \
     } while (0)
@@ -298,7 +309,7 @@ static boolean CreateVKWindow(void)
     screen = SDL_CreateWindow(NULL, x, y, w, h, flags);
     if (screen == NULL)
     {
-        fprintf(stderr, "I_VK: SDL_CreateWindow failed: %s\n", SDL_GetError());
+        I_LogError("I_VK: SDL_CreateWindow failed: %s\n", SDL_GetError());
         return false;
     }
 
@@ -367,7 +378,7 @@ static boolean CreateSwapchain(void)
                                           formats);
     if (count == 0)
     {
-        fprintf(stderr, "I_VK: surface reports no formats\n");
+        I_LogError("I_VK: surface reports no formats\n");
         return false;
     }
 
@@ -431,7 +442,7 @@ static boolean CreateSwapchain(void)
 
     if (vkCreateSwapchainKHR_(vk_ldevice, &ci, NULL, &vk_swapchain) != VK_SUCCESS)
     {
-        fprintf(stderr, "I_VK: vkCreateSwapchainKHR failed\n");
+        I_LogError("I_VK: vkCreateSwapchainKHR failed\n");
         return false;
     }
 
@@ -439,7 +450,7 @@ static boolean CreateSwapchain(void)
     if (vkGetSwapchainImagesKHR_(vk_ldevice, vk_swapchain, &count, vk_swap_images)
             != VK_SUCCESS || count == 0)
     {
-        fprintf(stderr, "I_VK: vkGetSwapchainImagesKHR failed\n");
+        I_LogError("I_VK: vkGetSwapchainImagesKHR failed\n");
         DestroySwapchainObjects();
         return false;
     }
@@ -458,7 +469,7 @@ static boolean CreateSwapchain(void)
         vi.subresourceRange.layerCount = 1;
         if (vkCreateImageView_(vk_ldevice, &vi, NULL, &vk_swap_views[i]) != VK_SUCCESS)
         {
-            fprintf(stderr, "I_VK: vkCreateImageView failed\n");
+            I_LogError("I_VK: vkCreateImageView failed\n");
             DestroySwapchainObjects();
             return false;
         }
@@ -470,7 +481,7 @@ static boolean CreateSwapchain(void)
         si.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
         if (vkCreateSemaphore_(vk_ldevice, &si, NULL, &vk_acquire_sem) != VK_SUCCESS)
         {
-            fprintf(stderr, "I_VK: vkCreateSemaphore failed\n");
+            I_LogError("I_VK: vkCreateSemaphore failed\n");
             DestroySwapchainObjects();
             return false;
         }
@@ -776,7 +787,7 @@ static void ExpandFrame(void)
             // recover the library device, then rebuild our objects. The
             // chain notices the generation change and rebuilds itself
             // silently on the next render (RefreshAfterDeviceChange).
-            printf("I_VK: Vulkan device lost during upload — recovering\n");
+            I_LogPrintf("I_VK: Vulkan device lost during upload — recovering\n");
             if (slangvk_device_recover(vk_device) == SLANGVK_OK
                 && RecoverHostObjects())
             {
@@ -818,7 +829,7 @@ static boolean WriteSwapchainTGA(uint32_t idx, const char *path)
 
     if (!vk_swap_transfer_src || idx >= vk_swap_image_count)
     {
-        fprintf(stderr, "I_VK: readback unavailable on this swapchain\n");
+        I_LogError("I_VK: readback unavailable on this swapchain\n");
         return false;
     }
 
@@ -832,7 +843,7 @@ static boolean WriteSwapchainTGA(uint32_t idx, const char *path)
             vk_swap_extent.width, vk_swap_extent.height,
             VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, px, bytes) != SLANGVK_OK)
     {
-        fprintf(stderr, "I_VK: readback failed: %s\n", slangvk_last_error());
+        I_LogError("I_VK: readback failed: %s\n", slangvk_last_error());
         free(px);
         return false;
     }
@@ -860,7 +871,7 @@ static boolean WriteSwapchainTGA(uint32_t idx, const char *path)
     f = fopen(path, "wb");
     if (f == NULL)
     {
-        fprintf(stderr, "I_VK: cannot open '%s' for writing\n", path);
+        I_LogError("I_VK: cannot open '%s' for writing\n", path);
         free(px);
         return false;
     }
@@ -876,7 +887,7 @@ static void CaptureTGA(uint32_t idx)
 {
     if (WriteSwapchainTGA(idx, "vkframe.tga"))
     {
-        printf("I_VK: captured frame %d -> vkframe.tga (%ux%u)\n",
+        I_LogPrintf("I_VK: captured frame %d -> vkframe.tga (%ux%u)\n",
                vk_capture_frame, vk_swap_extent.width, vk_swap_extent.height);
     }
     vk_capture_frame = 0;
@@ -910,12 +921,12 @@ static void HotkeyShot(uint32_t idx)
 
     if (!NextShotName(name, sizeof(name)))
     {
-        fprintf(stderr, "I_VK: no free vkshotNNN.tga slot\n");
+        I_LogError("I_VK: no free vkshotNNN.tga slot\n");
         return;
     }
     if (WriteSwapchainTGA(idx, name))
     {
-        printf("I_VK: hotkey screenshot -> %s (%ux%u)\n",
+        I_LogPrintf("I_VK: hotkey screenshot -> %s (%ux%u)\n",
                name, vk_swap_extent.width, vk_swap_extent.height);
         I_OverlayFlash("shot %s", name);
     }
@@ -987,7 +998,7 @@ void I_VK_FinishUpdate(void)
         // has been recovered yet — drive it here, same as the upload
         // path: the library rebuilds its device, we rebuild our objects,
         // the chain refreshes itself on the next render.
-        printf("I_VK: Vulkan device lost at acquire — recovering\n");
+        I_LogPrintf("I_VK: Vulkan device lost at acquire — recovering\n");
         if (slangvk_device_recover(vk_device) == SLANGVK_OK
             && RecoverHostObjects())
         {
@@ -1036,7 +1047,7 @@ void I_VK_FinishUpdate(void)
             // error means OUR objects died with the old VkDevice.
             // Recover them, drop this frame; the next one (swapchain
             // guard above) renders normally.
-            printf("I_VK: Vulkan device lost — recovered by libslang-vk, "
+            I_LogPrintf("I_VK: Vulkan device lost — recovered by libslang-vk, "
                    "rebuilding presenter\n");
             if (!RecoverHostObjects())
             {
@@ -1112,7 +1123,7 @@ void I_VK_ToggleAspect(void)
     aspect_ratio_correct = (aspect_ratio_correct + 2) % 3;
     BuildRowmap();
     BuildColmap();
-    printf("I_VK: aspect %s — feed %dx%d, base %dx%d\n",
+    I_LogPrintf("I_VK: aspect %s — feed %dx%d, base %dx%d\n",
            I_VK_AspectName(), VKFeedWidth(), VKFeedHeight(),
            VKBaseWidth(), VKBaseHeight());
     I_OverlayFlash("aspect %s", I_VK_AspectName());
@@ -1129,7 +1140,7 @@ void I_VK_CycleBase(void)
 {
     vk_base_mult = vk_base_mult % VK_BASE_MAX_MULT + 1;
     shader_base_resolution = vk_base_mult;
-    printf("I_VK: shader base resolution %dx — feed %dx%d -> base %dx%d\n",
+    I_LogPrintf("I_VK: shader base resolution %dx — feed %dx%d -> base %dx%d\n",
            vk_base_mult, SCREENWIDTH, VKFeedHeight(),
            VKBaseWidth(), VKBaseHeight());
     I_OverlayFlash("base %dx%d (%dx)", VKBaseWidth(), VKBaseHeight(),
@@ -1197,6 +1208,10 @@ void I_VK_ShutdownGraphics(void)
         I_VideoBuffer = NULL;
     }
     vk_active = false;
+
+    // Also reached mid-init after a failed attempt (the classic
+    // renderer takes over in that case) — the wording fits both.
+    I_LogMessage("Vulkan teardown complete\n");
 }
 
 // ------------------------------------------------------------------
@@ -1267,6 +1282,12 @@ boolean I_VK_AttemptGraphics(void)
 
     SetFallbackReason("");
 
+    // gpu-scaler.log: open before anything can fail — the fallback
+    // reasons above are half the log's value. Idempotent, so a video
+    // re-init reuses the running session instead of rotating the
+    // file out from under itself.
+    I_LogInit();
+
     if (!usevulkan || shader_preset == NULL || shader_preset[0] == '\0')
     {
         if (!usevulkan)
@@ -1276,8 +1297,18 @@ boolean I_VK_AttemptGraphics(void)
             // indistinguishable from a failure.
             SetFallbackReason("usevulkan = 0");
         }
+        else
+        {
+            I_LogMessage("no shader preset configured — classic renderer "
+                         "(set one with -shader <preset.slangp>)\n");
+        }
         return false;         // VK path not requested — classic renderer
     }
+
+    I_LogMessage("Vulkan init starting: preset '%s', aspect_ratio_correct "
+                 "%d, shader_base_resolution %d, vk_debug %d\n",
+                 shader_preset, aspect_ratio_correct,
+                 shader_base_resolution, vk_debug);
 
     ResolveBaseMultiplier();
 
@@ -1291,7 +1322,7 @@ boolean I_VK_AttemptGraphics(void)
 
     if (SDL_Vulkan_LoadLibrary(NULL) != 0)
     {
-        fprintf(stderr, "I_VK: SDL_Vulkan_LoadLibrary failed: %s\n",
+        I_LogError("I_VK: SDL_Vulkan_LoadLibrary failed: %s\n",
                 SDL_GetError());
         SetFallbackReason("SDL2 has no Vulkan support");
         I_VK_ShutdownGraphics();
@@ -1302,7 +1333,7 @@ boolean I_VK_AttemptGraphics(void)
     if (SDL_Vulkan_GetInstanceExtensions(screen, &ext_count, NULL) == SDL_FALSE
         || ext_count == 0)
     {
-        fprintf(stderr, "I_VK: SDL_Vulkan_GetInstanceExtensions failed\n");
+        I_LogError("I_VK: SDL_Vulkan_GetInstanceExtensions failed\n");
         SetFallbackReason("SDL2 lacks Vulkan windowing");
         I_VK_ShutdownGraphics();
         return false;
@@ -1311,7 +1342,7 @@ boolean I_VK_AttemptGraphics(void)
     if (inst_exts == NULL
         || SDL_Vulkan_GetInstanceExtensions(screen, &ext_count, inst_exts) == SDL_FALSE)
     {
-        fprintf(stderr, "I_VK: SDL_Vulkan_GetInstanceExtensions failed\n");
+        I_LogError("I_VK: SDL_Vulkan_GetInstanceExtensions failed\n");
         SetFallbackReason("SDL2 lacks Vulkan windowing");
         free(inst_exts);
         I_VK_ShutdownGraphics();
@@ -1331,7 +1362,7 @@ boolean I_VK_AttemptGraphics(void)
     // 3) Device — created by the library (headless-friendly create mode).
     if (slangvk_device_create(&dopt, &vk_device) != SLANGVK_OK)
     {
-        fprintf(stderr, "I_VK: slangvk_device_create failed: %s\n",
+        I_LogError("I_VK: slangvk_device_create failed: %s\n",
                 slangvk_last_error());
         SetFallbackReason("Vulkan device init failed");
         free(inst_exts);
@@ -1344,7 +1375,7 @@ boolean I_VK_AttemptGraphics(void)
     if (slangvk_device_get_handles(vk_device, &vk_instance, &vk_physical,
                                    &vk_ldevice, &vk_queue, &vk_family) != SLANGVK_OK)
     {
-        fprintf(stderr, "I_VK: slangvk_device_get_handles failed\n");
+        I_LogError("I_VK: slangvk_device_get_handles failed\n");
         SetFallbackReason("Vulkan device init failed");
         I_VK_ShutdownGraphics();
         return false;
@@ -1360,7 +1391,7 @@ boolean I_VK_AttemptGraphics(void)
     // 4) Surface + present support on the device's graphics family.
     if (SDL_Vulkan_CreateSurface(screen, vk_instance, &vk_surface) != SDL_TRUE)
     {
-        fprintf(stderr, "I_VK: SDL_Vulkan_CreateSurface failed: %s\n",
+        I_LogError("I_VK: SDL_Vulkan_CreateSurface failed: %s\n",
                 SDL_GetError());
         SetFallbackReason("Vulkan surface creation failed");
         I_VK_ShutdownGraphics();
@@ -1371,7 +1402,7 @@ boolean I_VK_AttemptGraphics(void)
                                           &present_supported);
     if (present_supported != VK_TRUE)
     {
-        fprintf(stderr, "I_VK: graphics queue does not present to this surface\n");
+        I_LogError("I_VK: graphics queue does not present to this surface\n");
         SetFallbackReason("GPU cannot present to window");
         I_VK_ShutdownGraphics();
         return false;
@@ -1394,7 +1425,7 @@ boolean I_VK_AttemptGraphics(void)
     io.format = VK_FORMAT_R8G8B8A8_UNORM;
     if (slangvk_image_create(vk_device, &io, &vk_input) != SLANGVK_OK)
     {
-        fprintf(stderr, "I_VK: slangvk_image_create failed: %s\n",
+        I_LogError("I_VK: slangvk_image_create failed: %s\n",
                 slangvk_last_error());
         SetFallbackReason("Vulkan image creation failed");
         I_VK_ShutdownGraphics();
@@ -1419,7 +1450,7 @@ boolean I_VK_AttemptGraphics(void)
         }
         if (slangvk_preset_load(vk_device, shader_preset, &po, &vk_preset) != SLANGVK_OK)
         {
-            fprintf(stderr, "I_VK: failed to load preset '%s': %s\n",
+            I_LogError("I_VK: failed to load preset '%s': %s\n",
                     shader_preset, slangvk_last_error());
             SetFallbackReason("preset failed to load");
             I_VK_ShutdownGraphics();
@@ -1434,7 +1465,7 @@ boolean I_VK_AttemptGraphics(void)
                              vk_swap_extent.height, vk_swap_format,
                              &vk_chain) != SLANGVK_OK)
     {
-        fprintf(stderr, "I_VK: slangvk_chain_create failed: %s\n",
+        I_LogError("I_VK: slangvk_chain_create failed: %s\n",
                 slangvk_last_error());
         SetFallbackReason("shader chain creation failed");
         I_VK_ShutdownGraphics();
@@ -1460,29 +1491,29 @@ boolean I_VK_AttemptGraphics(void)
     {
         M_StringCopy(vk_device_name, dinfo.device_name,
                      sizeof(vk_device_name));
-        printf("I_VK: libslang-vk active — '%s' (%u pass%s) on %s\n",
+        I_LogPrintf("I_VK: libslang-vk active — '%s' (%u pass%s) on %s\n",
                shader_preset, pass_count, pass_count == 1 ? "" : "es",
                dinfo.device_name);
     }
     else
     {
-        printf("I_VK: libslang-vk active — '%s' (%u passes)\n",
+        I_LogPrintf("I_VK: libslang-vk active — '%s' (%u passes)\n",
                shader_preset, pass_count);
     }
     if (VK_CacheDir()[0] != '\0')
     {
-        printf("I_VK: SPIR-V cache %s — %d pass%s from cache, %d compiled\n",
+        I_LogPrintf("I_VK: SPIR-V cache %s — %d pass%s from cache, %d compiled\n",
                VK_CacheDir(), vk_cache_hits,
                vk_cache_hits == 1 ? "" : "es", vk_cache_stores);
     }
     if (vk_base_mult > 1)
     {
-        printf("I_VK: shader base resolution %dx — feed %dx%d -> base %dx%d "
+        I_LogPrintf("I_VK: shader base resolution %dx — feed %dx%d -> base %dx%d "
                "(DevilutionX-style pre-scale before the preset chain)\n",
                vk_base_mult, VKFeedWidth(), feed_h,
                VKBaseWidth(), VKBaseHeight());
     }
-    printf("I_VK: feed %dx%d (%s), base %dx%d, swapchain %ux%u, present FIFO\n",
+    I_LogPrintf("I_VK: feed %dx%d (%s), base %dx%d, swapchain %ux%u, present FIFO\n",
            VKFeedWidth(), feed_h,
            I_VK_AspectName(),
            VKBaseWidth(), VKBaseHeight(),

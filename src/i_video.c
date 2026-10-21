@@ -36,6 +36,7 @@
 #include "doomtype.h"
 #include "i_input.h"
 #include "i_joystick.h"
+#include "i_log.h"
 #include "i_overlay.h"
 #include "i_system.h"
 #include "i_timer.h"
@@ -1614,12 +1615,12 @@ void I_InitGraphics(void)
     if (!I_VK_AttemptGraphics())
     {
         // A shader was requested but the Vulkan path did not start —
-        // say why (stdout survives `> log.txt` redirection on Windows,
-        // where GUI subsystem builds show no console at all; the same
-        // reason is mirrored in the stats overlay's shader row).
+        // say why (gpu-scaler.log carries the same line plus the
+        // detailed init-step errors; the same reason is mirrored in
+        // the stats overlay's shader row).
         if (shader_preset != NULL && shader_preset[0] != '\0')
         {
-            printf("I_VK: Vulkan path inactive (%s) — classic renderer\n",
+            I_LogPrintf("I_VK: Vulkan path inactive (%s) — classic renderer\n",
                    I_VK_FallbackReason());
         }
         SetVideoMode();

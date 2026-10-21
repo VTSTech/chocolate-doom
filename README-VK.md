@@ -57,6 +57,18 @@ All four games share the same video path, so the feature covers all of
 them (plus Strife). On Windows, MSYS2/MinGW and MSVC (vcpkg manifest) are
 wired up in `.github/workflows/vk-shaders.yml`.
 
+The library is linked as a **shared** artifact: `libslang-vk.dll` on
+Windows, `libslang-vk.so` / `libslang-vk.dylib` elsewhere, copied next
+to every game executable at build time — so the build tree runs out of
+the box, the executables stay small, and the shader library can be
+swapped or updated without relinking all four games. On Windows the
+exports come from `cmake/libslang-vk-c-api.def` (the upstream C surface
+carries no annotation, so the DLL would otherwise export nothing); keep
+that file in sync when bumping the pin — a missing name is a link error,
+not a silent miss. To go back to the single static link into each game,
+set `SLANGVK_BUILD_SHARED OFF` in the root `CMakeLists.txt` and link
+`slangvk::slangvk` instead of `slangvk::shared` in `src/CMakeLists.txt`.
+
 ## Running
 
 ```sh
@@ -276,11 +288,48 @@ virtually every real platform — producing the "blue shifted"
 screenshots. `-vkdebug` enables the Khronos validation layer; a clean
 run produces no output.
 
+## Session log (gpu-scaler.log)
+
+Windows GUI-subsystem builds show no console — `printf` and stderr go
+nowhere exactly where the Vulkan path most needs to explain itself. So
+the presenter writes a session log: **`gpu-scaler.log`**, one plain-text
+file per run, timestamped line by line and flushed as it happens (a
+crash cannot eat the tail). It lives in the config directory — next to
+the executable (and `default.cfg`, and the `shader-cache/` directory) on
+Windows, `~/.local/share/chocolate-doom/` elsewhere — and each start
+pushes the previous run to `gpu-scaler.log.old`, so the last two
+sessions, including a crashed one, are always on disk. All four games
+rotate the same pair of files when run from the same directory.
+
+What lands there:
+
+- the session header (package version, log path) and the startup
+  snapshot — preset path, `aspect_ratio_correct`,
+  `shader_base_resolution`, `vk_debug` — written before anything can
+  fail;
+- every message the Vulkan path prints to the console, unchanged
+  (init steps, the `libslang-vk active — …` banner, cache hit/compile
+  counts, aspect and base-resolution changes, screenshot confirmations,
+  device-lost recovery);
+- every **fallback reason** (one guaranteed line per failed init —
+  "no shader preset configured", "SDL2 has no Vulkan support", "preset
+  failed to load", …), even when the classic renderer takes over and
+  the game itself runs fine;
+- the final `I_Error` text when a run dies fatally — device-lost
+  recovery failing, for instance.
+
+Console output is unchanged (Linux terminals see exactly what they saw
+before); the file is additive. Logging is best-effort by design: a
+read-only directory disables it with one console note and never fails
+the game. Builds with `ENABLE_VK_SHADERS=OFF` never create a log.
+
 ## Fallback behavior
 
 Every failure path — no Vulkan loader, device creation refused, the preset
 file missing or failing to parse — prints one explanatory line and drops
-back to the classic SDL2 renderer for that run.
+back to the classic SDL2 renderer for that run; the same reason is
+recorded in `gpu-scaler.log` (see above), where the detailed per-step
+errors from the failed init are too.
 
 A **device lost** event (driver reset, Windows TDR) once the chain is
 live is no longer fatal: the library rebuilds its side (device, the
@@ -294,7 +343,7 @@ itself fails (broken driver, no replacement device) is fatal, via
 `I_Error` with the library's message. The games' own sources stay C99
 throughout.
 
-## Validation performed (2026-10-21; v0.1.1-vk, base-resolution at v0.2.0, hotkeys + capture fix at v0.2.1, M4.07 pin + SPIR-V cache + device-lost recovery at v0.3.0)
+## Validation performed (2026-10-22; v0.1.1-vk, base-resolution at v0.2.0, hotkeys + capture fix at v0.2.1, M4.07 pin + SPIR-V cache + device-lost recovery at v0.3.0, session log + shared library at v0.4.0)
 
 - libslang-vk M4.05 standalone: 18/18 ctest on lavapipe (incl. the M4
   swapchain-presentation test and the C API test).
@@ -355,6 +404,22 @@ throughout.
   320x240 4:3` on the classic path (the engine's 35 Hz tic cap, as
   expected). The overlay's fps reading agrees with `-timedemo`'s own
   summary (275.9 vs 304 average).
+- Session log + shared library (v0.4.0): 23/23 checks on the log module
+  (`scripts/test_i_log.c`) — rotation to `.old` with the previous
+  session's sentinel intact, header, newline append, truncation keeping
+  its newline, idempotent re-init, close/after-close safety, disabled
+  state without a config dir, and console dual-write preserved on both
+  stdout and stderr. Both game build variants (ENABLE_VK_SHADERS on/off)
+  compile clean under `-Wall -Wextra` for every touched file
+  (i_log.c, i_video_vk.c, i_video.c, i_system.c). The shared build was
+  exercised end-to-end on Linux: full CMake configure/generate through
+  FetchContent, `slangvk-shared` built as `libslang-vk.so`, all 27 C API
+  names exported (checked against the built binary with `nm -D`), the
+  game targets link the shared artifact, and the generated build files
+  carry the POST_BUILD copy next to each executable. The Windows
+  `.def` export list is cross-checked 1:1 against the pinned `c.h` (27
+  symbols, exact match); MSVC/MinGW link behavior with a .def is
+  standard toolchain behavior not re-tested here.
 - Not yet automated: interactive window resize / fullscreen-toggle
   swapchain recreation (exercised by design; mirrors the reference host's
   recreate logic — please report anything odd on real hardware).

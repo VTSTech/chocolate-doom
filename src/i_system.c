@@ -36,6 +36,7 @@
 
 #include "deh_str.h"
 #include "doomtype.h"
+#include "i_log.h"
 #include "m_argv.h"
 #include "m_config.h"
 #include "m_misc.h"
@@ -305,6 +306,12 @@ void I_Error (const char *error, ...)
     memset(msgbuf, 0, sizeof(msgbuf));
     M_vsnprintf(msgbuf, sizeof(msgbuf), error, argptr);
     va_end(argptr);
+
+    // gpu-scaler.log: a fatal error is the one line a support log must
+    // have (device lost, chain render failed, ...). File-only — the
+    // stderr copy and the GUI popup below already cover the console
+    // side — and a no-op when the Vulkan path never opened the log.
+    I_LogMessage("I_Error: %s\n", msgbuf);
 
     // Shutdown. Here might be other errors.
 

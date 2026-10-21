@@ -1,0 +1,49 @@
+; libslang-vk-c-api.def — export list for the shared libslang-vk build.
+;
+; The upstream C API (include/slangvk/c.h in VTSTech/libslang-vk,
+; implemented by src/c_api.cpp) is declared without SLANGVK_API
+; annotation — the macros in slangvk/export.h are only applied to the
+; C++ headers — so on Windows the slangvk-shared target would produce
+; a DLL that exports none of the C surface the games link against.
+; This module-definition file exports that surface explicitly at link
+; time, which needs no change to the pinned upstream tree.
+;
+; Keep in sync with the pinned c.h (GIT_TAG d176d1b..., M4.07): a
+; function added upstream becomes a link error here until it joins
+; this list — a deliberate, loud failure rather than a silent miss.
+; On GCC/Clang hosts the C symbols already carry default visibility,
+; so the .def is only wired into the target on WIN32.
+
+EXPORTS
+    ; results / diagnostics
+    slangvk_result_name
+    slangvk_last_error
+    ; device
+    slangvk_device_create
+    slangvk_device_adopt
+    slangvk_device_destroy
+    slangvk_device_get_info
+    slangvk_device_get_handles
+    slangvk_device_wait_idle
+    slangvk_device_recover
+    slangvk_device_read_pixels
+    ; images
+    slangvk_image_create
+    slangvk_image_update
+    slangvk_image_destroy
+    slangvk_image_get_handles
+    ; presets
+    slangvk_preset_load
+    slangvk_preset_destroy
+    slangvk_preset_pass_count
+    slangvk_preset_parameter_count
+    slangvk_preset_parameter
+    ; chains
+    slangvk_chain_create
+    slangvk_chain_create_ex
+    slangvk_chain_destroy
+    slangvk_chain_resize
+    slangvk_chain_set_parameter
+    slangvk_chain_render_swapchain
+    slangvk_chain_render_offscreen
+    slangvk_chain_pass_output_size

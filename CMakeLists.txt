@@ -73,7 +73,12 @@ if(ENABLE_VK_SHADERS)
     include(FetchContent)
     set(SLANGVK_BUILD_TESTS OFF)    # the upstream suite runs in its own repo
     set(SLANGVK_BUILD_EXAMPLES OFF)
-    set(SLANGVK_BUILD_SHARED OFF)   # single static link into each game
+    # Shared, not static: the games link against a libslang-vk.dll that
+    # lands next to each executable (see src/CMakeLists.txt) — the exes
+    # stay small and the shader library can be swapped or updated
+    # without relinking all four games. Set OFF to go back to the
+    # single static link into each game.
+    set(SLANGVK_BUILD_SHARED ON)
     # Pinned by immutable commit hash, not by a mutable release tag: the
     # exact commit the M4.07 milestone tag points at (d176d1b — SPIR-V
     # cache hooks, PERF-09 render path, SEC-07 C API validation; upstream
@@ -84,6 +89,26 @@ if(ENABLE_VK_SHADERS)
     GIT_TAG d176d1bfa15e01b84fa5e40d5a3700e1de824b86 # M4.07
     )
     FetchContent_MakeAvailable(libslang-vk)
+    # User-facing artifact names: libslang-vk.dll on Windows (the repo's
+    # name), libslang-vk.so / libslang-vk.dylib elsewhere (CMake adds
+    # the "lib" prefix there).
+    if(WIN32)
+        set_target_properties(slangvk-shared PROPERTIES
+            OUTPUT_NAME "libslang-vk")
+        # The upstream C API (slangvk/c.h, src/c_api.cpp) carries no
+        # SLANGVK_API annotation — export.h only annotates the C++
+        # headers — so on Windows the shared build would export none of
+        # the C surface the games link against. A module-definition
+        # file exports it explicitly at link time; keep the list in
+        # sync with the pinned c.h when bumping GIT_TAG (a missing
+        # name is a loud link error, not a silent miss). GCC/Clang
+        # hosts export the C symbols via default visibility already.
+        target_sources(slangvk-shared PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/cmake/libslang-vk-c-api.def")
+    else()
+        set_target_properties(slangvk-shared PROPERTIES
+            OUTPUT_NAME "slang-vk")
+    endif()
     # The library's targets require C++23 (its scope sets it for its own
     # sources); harmless here — the game code stays C99.
     set(CMAKE_CXX_STANDARD 23)
