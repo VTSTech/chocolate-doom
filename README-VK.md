@@ -64,6 +64,7 @@ build/src/chocolate-doom -iwad DOOM.WAD -shader /path/to/crt-easymode.slangp
 # "name  value" format, no '=' sign, like the rest of Chocolate Doom):
 #   shader                     "/path/to/crt-easymode.slangp"
 #   usevulkan                  1
+#   shader_base_resolution     640        # 2x base canvas (see below)
 ```
 
 Setting `shader` (config or `-shader <path>`) is what activates the
@@ -76,6 +77,7 @@ point `shader` at any `.slangp` in it; `-shader` accepts any path.
 | `-shader <path>` | Run this `.slangp` through the chain (persist in `shader` config key) |
 | `-novulkan` | Force the classic SDL2 renderer for this run (`usevulkan = 0` persists) |
 | `-noaspect` | Feed raw 320x200 (16:10) instead of the authentic 4:3 stretch |
+| `-vkbase <n>` | Shader base resolution: 2/3/4 = doubled/tripled/quadrupled chain input (or a pixel width, e.g. `640`); persists in `shader_base_resolution` |
 | **F11** (in-game) | Toggle 4:3 ↔ raw aspect live; feed re-creates, chain re-derives |
 | **Scroll Lock** (in-game) | Toggle the stats overlay (below) |
 | `-novkstats` | Start with the stats overlay off (`vkstats = 0` persists) |
@@ -103,8 +105,9 @@ crt/crt-easymode.slangp | 3 passes
   that failed to start is shown as `(unused)`, `no shader` when none is
   set.
 - Row 4 is the smoothed frame rate and frame time, plus the feed mode
-  (`320x240 4:3` or `320x200 1:1`, the same state F11 flips). Under
-  normal play the engine caps rendering at its 35 Hz tic rate — that
+  (`320x240 4:3` or `320x200 1:1`, the same state F11 flips; with a base
+  multiplier active it shows the enlarged canvas, e.g. `640x480 4:3 (2x)`).
+  Under normal play the engine caps rendering at its 35 Hz tic rate — that
   cap is what the counter honestly reports; `-timedemo` shows real
   throughput (several hundred fps on lavapipe, for example).
 
@@ -128,6 +131,63 @@ a 6:5 nearest row stretch to 320×240 so CRT geometry and bezel presets see
 the authentic shape (this is what libslang-vk's aspect-corrected viewport
 derives its letterbox from — SPEC F6). F11 flips the two modes at runtime.
 
+## Shader base resolution (double / triple / quadruple)
+
+DevilutionX's libslang-vk integration exposes two independent knobs: the
+**Game Resolution** (the window/swapchain the chain presents to) and the
+**Shader Base Resolution** (the canvas the chain consumes). This fork has
+the same split — the window side is Chocolate Doom's regular `-2`/`-3`/
+`-width`/`-height`/fullscreen handling, and the base side is new:
+
+```sh
+# 2x  base canvas (feed 320x240 -> chain input 640x480):
+build/src/chocolate-doom -iwad DOOM.WAD -shader crt/crtglow_lanczos.slangp -vkbase 2
+
+# 3x / 4x (960x720 / 1280x960 chain input), or a pixel width — same thing:
+... -vkbase 3
+... -vkbase 1280
+
+# Config-file form (persisted like every other VK option):
+#   shader_base_resolution     960
+```
+
+What it does: after the palette LUT expansion (and the 4:3 stretch when
+enabled), the frame is duplicated k-fold — each game pixel becomes an exact
+k×k block, pure nearest-neighbor, no new detail — and *that* image is what
+the preset chain sees. The chain re-derives every pass FBO from the input
+size, so a `2xScaleHQ` fed a 640×480 base really does its 2x work at 2x
+game scale, and the final pass maps the result onto the window as before.
+
+Why you'd want it:
+
+- **Upscaler headroom on small windows.** Presets designed around
+  input < output (ScaleFX, HQx, xBR variants) have more room to work
+  with a bigger base — the same reason DevilutionX ships a base-size
+  setting. On a huge window it matters less (the ratio is already large).
+- **Anti-aliasing / sharpening presets** (FXAA, advanced AA) behave
+  better with more pixels to smooth: at native 320×240 they can blur the
+  whole frame, at 2–3x they work at a finer granularity.
+- **CRT masks / scanline presets** that compute in input space get a
+  finer pixel grid; output-space presets are unaffected.
+
+Trade-offs: it is a real upscale — heavier input-space presets cost more
+GPU time per frame (input-space work scales with k²; on the lavapipe
+software rasterizer a 1-pass preset went ~294 → ~211 fps at 2x, ~157 at
+3x — real GPUs have far more headroom), and the CPU staging copy grows
+(k×k duplication, one `memcpy` per row block — measured in microseconds).
+The multiplier is capped at 4 (1280×960) to bound staging memory and
+shader cost. `0` (the default) and `320` mean native 1x — the exact
+pre-v0.2 look. Vulkan path only; `-novulkan` runs ignore it. The startup
+log prints the effective choice:
+
+```
+I_VK: shader base resolution 2x — feed 320x240 -> base 640x480 (DevilutionX-style pre-scale before the preset chain)
+I_VK: feed 320x240 (4:3 corrected), base 640x480, swapchain 1920x1080, present FIFO
+```
+
+The F11 aspect toggle composes with it (base follows the feed: 640×480 ↔
+640×400), and the overlay's mode row always shows the live canvas.
+
 ## Debug aids
 
 `-vkcapture <n>` reads back the n-th presented frame straight off the
@@ -144,7 +204,7 @@ back to the classic SDL2 renderer for that run. A failure *after* the
 chain is live (device lost, render error) is fatal with the library's
 message, via `I_Error`. The games' own sources stay C99 throughout.
 
-## Validation performed (2026-10-21, this fork @ v0.1.1-vk)
+## Validation performed (2026-10-21; v0.1.1-vk, base-resolution at v0.2.0)
 
 - libslang-vk M4.05 standalone: 18/18 ctest on lavapipe (incl. the M4
   swapchain-presentation test and the C API test).
@@ -153,6 +213,20 @@ message, via `I_Error`. The games' own sources stay C99 throughout.
   at ~284 fps, frame 240 captured via `-vkcapture`, differential check
   across two different presets (mean abs diff 22/255, 98% of pixels
   changed — the chain demonstrably processes the frame).
+- Shader base resolution (v0.2.0): six-run matrix on lavapipe — 1x
+  baseline, `-vkbase 2` / `-vkbase 640` (multiplier and width forms,
+  byte-identical output: mean diff 0.28/255), `-window -3 -vkbase 2`
+  (960x720 window, real upscaler headroom), `-vkbase 4 -vkdebug` (zero
+  validation messages), and a config-seeded `shader_base_resolution 960`
+  (3x). Overlay decoded glyph-by-glyph from every capture: the mode row
+  reads `320x240 4:3`, `640x480 4:3 (2x)`, `960x720 4:3 (3x)`,
+  `1280x960 4:3 (4x)` exactly as configured. Content equivalence at 2x
+  and 4x: mean abs diff vs the 1x capture 9.9 / 9.2 out of 255 (final-pass
+  sampling phase only); at 3x (a 3:2 output ratio, the worst case for the
+  test preset's synthetic scanlines) the scan-factor-corrected per-channel
+  ratio median is exactly 1.000 — identical scene structure. Timedemo
+  throughput on lavapipe: ~294 / ~211 / ~157 / ~117 fps at 1x / 2x / 3x /
+  4x (input-space cost scales with k², as expected).
 - Zero Vulkan validation messages across a full `-vkdebug` session.
 - F11 aspect toggle exercised live mid-demo: feed re-created 320x240 →
   320x200, chain re-derived, and the presentation letterbox switched
