@@ -59,9 +59,11 @@ wired up in `.github/workflows/vk-shaders.yml`.
 # One-off:
 build/src/chocolate-doom -iwad DOOM.WAD -shader /path/to/crt-easymode.slangp
 
-# Persisted in the config file (~/.local/share/chocolate-doom/default.cfg):
-#   shader = /path/to/crt-easymode.slangp
-#   usevulkan = 1
+# Persisted in the config file
+# (~/.local/share/chocolate-doom/chocolate-doom.cfg — note the
+# "name  value" format, no '=' sign, like the rest of Chocolate Doom):
+#   shader                     "/path/to/crt-easymode.slangp"
+#   usevulkan                  1
 ```
 
 Setting `shader` (config or `-shader <path>`) is what activates the
@@ -75,8 +77,45 @@ point `shader` at any `.slangp` in it; `-shader` accepts any path.
 | `-novulkan` | Force the classic SDL2 renderer for this run (`usevulkan = 0` persists) |
 | `-noaspect` | Feed raw 320x200 (16:10) instead of the authentic 4:3 stretch |
 | **F11** (in-game) | Toggle 4:3 ↔ raw aspect live; feed re-creates, chain re-derives |
+| **Scroll Lock** (in-game) | Toggle the stats overlay (below) |
+| `-novkstats` | Start with the stats overlay off (`vkstats = 0` persists) |
 | `-vkdebug` | Enable the Vulkan validation layer for this run |
 | `-vkcapture <n>` | Dump the n-th presented frame to `vkframe.tga` |
+
+## On-screen stats overlay
+
+A compact overlay is drawn into the software frame just before it is
+presented — on **both** backends — so it answers "what am I actually
+looking at" at a glance:
+
+```
+Vulkan | libslang-vk
+llvmpipe (LLVM 19.1.7, 256 bits)
+crt/crt-easymode.slangp | 3 passes
+314.2 fps | 3.18 ms | 320x240 4:3
+```
+
+- Row 1 is the presenter: `Vulkan | libslang-vk` or `SDL2 | classic`.
+- Row 2 is the adapter (Vulkan device name) or, on the classic path,
+  the SDL renderer, video driver and window size
+  (e.g. `opengl | x11 | 640x480`).
+- Row 3 is the active preset with its pass count; a configured preset
+  that failed to start is shown as `(unused)`, `no shader` when none is
+  set.
+- Row 4 is the smoothed frame rate and frame time, plus the feed mode
+  (`320x240 4:3` or `320x200 1:1`, the same state F11 flips). Under
+  normal play the engine caps rendering at its 35 Hz tic rate — that
+  cap is what the counter honestly reports; `-timedemo` shows real
+  throughput (several hundred fps on lavapipe, for example).
+
+The text is an embedded public-domain 8×8 bitmap font (font8x8), drawn
+in palette-index space with `I_GetPaletteIndex()` colors, so it follows
+gamma and pain tints like the rest of the frame — and on the Vulkan
+path it goes through the shader chain itself (`-vkcapture` frames show
+it). **Scroll Lock** toggles it at runtime; `vkstats` in the config
+file and `-novkstats` control the startup state (default: on). Note
+that Scroll Lock is intercepted by the overlay toggle and therefore
+not available for game bindings while this fork runs.
 
 ## The frame feed and aspect handling
 
@@ -105,7 +144,7 @@ back to the classic SDL2 renderer for that run. A failure *after* the
 chain is live (device lost, render error) is fatal with the library's
 message, via `I_Error`. The games' own sources stay C99 throughout.
 
-## Validation performed (2026-10-21, this fork @ v0.1.0-vk)
+## Validation performed (2026-10-21, this fork @ v0.1.1-vk)
 
 - libslang-vk M4.05 standalone: 18/18 ctest on lavapipe (incl. the M4
   swapchain-presentation test and the C API test).
@@ -119,6 +158,16 @@ message, via `I_Error`. The games' own sources stay C99 throughout.
   320x200, chain re-derived, and the presentation letterbox switched
   exactly as specified (edge rows content 57.6/74.1 → pure black 0.0/0.0,
   non-black coverage 99.6% → 83.0%).
+- Stats overlay (v0.1.1): 24/24 automated checks on lavapipe — default-on
+  box present, `-novkstats` and Scroll Lock each remove it on both
+  backends, and the overlay text was decoded glyph-by-glyph out of the
+  captured frames: `Vulkan | libslang-vk` / `llvmpipe (LLVM 19.1.7, 256
+  bits)` / `demo-bright.slangp | 1 pass` / `275.9 fps | 3.62 ms |
+  320x240 4:3` on the Vulkan path, and `SDL2 | classic` / `opengl | x11
+  | 640x480` / `no shader (classic renderer)` / `35.1 fps | 28.52 ms |
+  320x240 4:3` on the classic path (the engine's 35 Hz tic cap, as
+  expected). The overlay's fps reading agrees with `-timedemo`'s own
+  summary (275.9 vs 304 average).
 - Not yet automated: interactive window resize / fullscreen-toggle
   swapchain recreation (exercised by design; mirrors the reference host's
   recreate logic — please report anything odd on real hardware).
@@ -144,4 +193,6 @@ work is distributed under the GPL-2.0 (see `COPYING.md`). Freedoom
 (BSD-3) is used for automated testing only and never distributed with
 this fork. This fork adds no shader presets of its own; anything you
 point `-shader` at is governed by its own license (the slang-shaders
-corpus is largely MIT — check each preset's header).
+corpus is largely MIT — check each preset's header). The stats overlay
+embeds [font8x8](https://github.com/dhepper/font8x8) (public domain,
+Daniel Hepper / Marcel Sondaar / IBM).

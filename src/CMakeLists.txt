@@ -78,6 +78,7 @@ set(GAME_SOURCE_FILES
     i_joystick.c        i_joystick.h
                         i_swap.h
     i_musicpack.c
+    i_overlay.c         i_overlay.h
     i_oplmusic.c
     i_pcsound.c
     i_sdlmusic.c
@@ -159,7 +160,7 @@ if(FluidSynth_FOUND)
     list(APPEND EXTRA_LIBS FluidSynth::libfluidsynth)
 endif()
 if(WIN32)
-        list(APPEND EXTRA_LIBS winmm shlwapi)
+	list(APPEND EXTRA_LIBS winmm shlwapi)
 endif()
 
 # Chocolate Doom VK: the shader-presenter library (present in every game

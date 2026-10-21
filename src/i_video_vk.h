@@ -51,6 +51,13 @@ extern unsigned int last_resize_time;
 // True once the Vulkan path owns the window and presents every frame.
 boolean I_VK_Active(void);
 
+// Adapter description (deviceName from the library device info)
+// and preset pass count, used by the stats overlay (i_overlay.c).
+// Return ""/0 when the Vulkan path is not running (or compiled
+// out).
+const char *I_VK_DeviceName(void);
+int I_VK_PassCount(void);
+
 // --- hooks called from i_video.c ---
 
 // From I_InitGraphics: try to take over (window + device + swapchain +

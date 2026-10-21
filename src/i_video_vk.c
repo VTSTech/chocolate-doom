@@ -57,11 +57,9 @@ char *shader_preset = "";       // activation: setting a preset activates VK
 int vk_debug = 0;              // -vkdebug: validation layers
 int vk_capture_frame = 0;       // -vkcapture <n>: dump frame n as vkframe.tga
 
-// Window geometry/config owned by i_video.c but not in i_video.h:
-extern int window_width;
-extern int window_height;
-extern int fullscreen_width;
-extern int fullscreen_height;
+// window_width/window_height/fullscreen_width/fullscreen_height are
+// declared in i_video.h (this file includes it): cross-file declarations
+// belong in headers, not .c files — that is the repo's style gate.
 
 #ifdef ENABLE_VK_SHADERS
 
@@ -81,9 +79,26 @@ extern int fullscreen_height;
 
 static boolean vk_active = false;
 
+// Stats overlay source data (i_overlay.c): adapter identity
+// and preset depth, filled in during I_VK_AttemptGraphics.
+static char vk_device_name[VK_MAX_PHYSICAL_DEVICE_NAME_SIZE] = "";
+static int vk_pass_count = 0;
+
 boolean I_VK_Active(void)
 {
     return vk_active;
+}
+
+// Adapter description + preset pass count for the stats
+// overlay (i_overlay.c); ""/0 until the Vulkan path is up.
+const char *I_VK_DeviceName(void)
+{
+    return vk_device_name;
+}
+
+int I_VK_PassCount(void)
+{
+    return vk_pass_count;
 }
 
 // libslang-vk objects (destroy order per c.h: chain -> preset -> image ->
@@ -947,6 +962,7 @@ boolean I_VK_AttemptGraphics(void)
         return false;
     }
     slangvk_preset_pass_count(vk_preset, &pass_count);
+    vk_pass_count = (int) pass_count;
 
     // 8) Chain bound to the swapchain (extent + format).
     if (slangvk_chain_create(vk_device, vk_preset, vk_swap_extent.width,
@@ -974,6 +990,8 @@ boolean I_VK_AttemptGraphics(void)
 
     if (slangvk_device_get_info(vk_device, &dinfo) == SLANGVK_OK)
     {
+        M_StringCopy(vk_device_name, dinfo.device_name,
+                     sizeof(vk_device_name));
         printf("I_VK: libslang-vk active — '%s' (%u pass%s) on %s\n",
                shader_preset, pass_count, pass_count == 1 ? "" : "es",
                dinfo.device_name);
@@ -1000,6 +1018,8 @@ void I_VK_FlagResize(void)               { }
 void I_VK_ToggleAspect(void)             { }
 void I_VK_FinishUpdate(void)             { }
 void I_VK_ShutdownGraphics(void)         { }
+const char *I_VK_DeviceName(void)        { return ""; }
+int I_VK_PassCount(void)                 { return 0; }
 
 #endif  // ENABLE_VK_SHADERS
 

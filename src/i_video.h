@@ -13,7 +13,7 @@
 // GNU General Public License for more details.
 //
 // DESCRIPTION:
-//	System specific interface stuff.
+//      System specific interface stuff.
 //
 
 
@@ -95,6 +95,13 @@ extern int integer_scaling;
 extern int smooth_pixel_scaling;
 extern int vga_porch_flash;
 extern int force_software_renderer;
+
+// Window sizing, owned by i_video.c (config-bound there); the Vulkan
+// presenter (i_video_vk.c) mirrors these for its swapchain bookkeeping.
+extern int window_width;
+extern int window_height;
+extern int fullscreen_width;
+extern int fullscreen_height;
 
 extern int png_screenshots;
 

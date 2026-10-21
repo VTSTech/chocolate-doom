@@ -756,6 +756,14 @@ static default_t extra_defaults_list[] =
     CONFIG_VARIABLE_STRING(shader),
 
     //!
+    // If non-zero, show the on-screen stats overlay (FPS,
+    // graphics backend, active shader). Scroll Lock toggles
+    // it at runtime. (Chocolate Doom VK)
+    //
+
+    CONFIG_VARIABLE_INT(vkstats),
+
+    //!
     // If non-zero, the screen will have smooth scaling.
     //
 
@@ -2145,13 +2153,13 @@ static void SaveDefaultCollection(default_collection_t *collection)
     default_t *defaults;
     int i, v;
     FILE *f;
-        
+	
     f = M_fopen(collection->filename, "w");
     if (!f)
-        return; // can't write the file, but don't complain
+	return; // can't write the file, but don't complain
 
     defaults = collection->defaults;
-                
+		
     for (i=0 ; i<collection->numdefaults ; i++)
     {
         int chars_written;
@@ -2217,15 +2225,15 @@ static void SaveDefaultCollection(default_collection_t *collection)
                     }
                 }
 
-                fprintf(f, "%i", v);
+	        fprintf(f, "%i", v);
                 break;
 
             case DEFAULT_INT:
-                fprintf(f, "%i", *defaults[i].location.i);
+	        fprintf(f, "%i", *defaults[i].location.i);
                 break;
 
             case DEFAULT_INT_HEX:
-                fprintf(f, "0x%x", *defaults[i].location.i);
+	        fprintf(f, "0x%x", *defaults[i].location.i);
                 break;
 
             case DEFAULT_FLOAT:
@@ -2233,7 +2241,7 @@ static void SaveDefaultCollection(default_collection_t *collection)
                 break;
 
             case DEFAULT_STRING:
-                fprintf(f,"\"%s\"", *defaults[i].location.s);
+	        fprintf(f,"\"%s\"", *defaults[i].location.s);
                 break;
         }
 
@@ -2463,8 +2471,8 @@ void M_LoadDefaults (void)
 
     if (i)
     {
-        doom_defaults.filename = myargv[i+1];
-        printf ("       default file: %s\n",doom_defaults.filename);
+	doom_defaults.filename = myargv[i+1];
+	printf ("	default file: %s\n",doom_defaults.filename);
     }
     else
     {
@@ -2774,7 +2782,7 @@ char *M_GetSaveGameDir(const char *iwadname)
     // a savegame directory, either.
     else if (!strcmp(configdir, exedir))
     {
-        savegamedir = M_StringDuplicate("");
+	savegamedir = M_StringDuplicate("");
     }
     else
     {
