@@ -11,11 +11,12 @@
 // into a host-owned Vulkan swapchain:
 //
 //   I_VideoBuffer (320x200, PLAYPAL indices, CPU-rasterized by the engine)
-//       | palette LUT expand  (+ 6:5 nearest stretch when 4:3-corrected)
+//       | palette LUT expand  (+ 6:5 nearest row stretch when 4:3-corrected;
+//       |   + 320->356 column stretch in 16:9 widescreen mode)
 //       | + k-fold nearest base upscale (shader_base_resolution / -vkbase,
 //       |   the DevilutionX "Shader Base Resolution" analog)
 //       v
-//   RGBA8 320x240*k / 320x200*k  --slangvk_image_update-->  input image
+//   RGBA8 320x240*k / 320x200*k / 356x200*k  --slangvk_image_update-->  input image
 //       | slangvk_chain_render_swapchain (preset pass chain, letterboxed
 //       | by the library onto the swapchain image, M4 output mode (a))
 //       v
@@ -147,9 +148,11 @@ static uint32_t vk_swap_image_count = 0;
 static boolean vk_swap_transfer_src = false;
 
 // Feed state: expansion LUT (endian-safe [r,g,b,255] byte tuples), the
-// 240-entry source-row map for the 4:3 stretch, and the staging buffer.
+// 240-entry source-row map for the 4:3 stretch, the 356-entry source-column
+// map for the 16:9 stretch, and the staging buffer.
 static unsigned char vk_lut[256][4];
 static int vk_rowmap[SCREENHEIGHT_4_3];
+static int vk_colmap[SCREENWIDTH_16_9];
 static unsigned char *vk_staging = NULL;   // base_width * base_height * 4
 static size_t vk_staging_bytes = 0;
 
@@ -500,19 +503,42 @@ static boolean RecreateSwapchain(void)
 }
 
 // ------------------------------------------------------------------
-// Feed: palette LUT + 6:5 row stretch (320x240) or raw 320x200
+// Feed: palette LUT + 6:5 row stretch (320x240), raw 320x200, or the
+// 356x200 16:9 widescreen stretch (column map)
 // ------------------------------------------------------------------
+
+// Aspect mode name for the stats overlay (i_overlay.c) and the F11
+// feedback: aspect_ratio_correct 1 = "4:3", 0 = "16:10" (raw square
+// pixels), 2 = "16:9" (widescreen column stretch).
+const char *I_VK_AspectName(void)
+{
+    switch (aspect_ratio_correct)
+    {
+        case 2:  return "16:9";
+        case 1:  return "4:3";
+        default: return "16:10";
+    }
+}
 
 static int VKFeedHeight(void)
 {
-    return aspect_ratio_correct ? SCREENHEIGHT_4_3 : SCREENHEIGHT;
+    return aspect_ratio_correct == 1 ? SCREENHEIGHT_4_3 : SCREENHEIGHT;
+}
+
+// Feed width: 320, or 356 in 16:9 mode (356/200 = 1.78). The widescreen
+// stretch rides on the raw 200-row feed — same game content, wider frame,
+// so the library's aspect-corrected letterbox fills a 16:9 display
+// exactly (and still letterboxes correctly on any other display shape).
+static int VKFeedWidth(void)
+{
+    return aspect_ratio_correct == 2 ? SCREENWIDTH_16_9 : SCREENWIDTH;
 }
 
 // The shader-chain input canvas: the feed duplicated k-fold (nearest,
 // pixel-perfect, DevilutionX "Shader Base Resolution" analog).
 static int VKBaseWidth(void)
 {
-    return SCREENWIDTH * vk_base_mult;
+    return VKFeedWidth() * vk_base_mult;
 }
 
 static int VKBaseHeight(void)
@@ -557,7 +583,7 @@ void I_VK_FeedSize(int *w, int *h)
 
     if (w != NULL)
     {
-        *w = SCREENWIDTH * mult;
+        *w = VKFeedWidth() * mult;
     }
     if (h != NULL)
     {
@@ -576,18 +602,34 @@ static void BuildRowmap(void)
     const int dst_h = VKFeedHeight();
 
     // 4:3: 240 output rows cover 200 source rows (nearest, authentic mode
-    // 13h stretch). Raw: identity.
+    // 13h stretch). Raw / 16:9: identity (the 16:9 stretch is horizontal).
     for (y = 0; y < dst_h; ++y)
     {
-        vk_rowmap[y] = aspect_ratio_correct
+        vk_rowmap[y] = aspect_ratio_correct == 1
             ? (y * SCREENHEIGHT) / SCREENHEIGHT_4_3
             : y;
     }
 }
 
-// (Re)create the input image at the current base size. Aspect toggles flip
-// 320x240 <-> 320x200 (x k); the chain re-derives its FBOs and history ring
-// from the per-frame input size on the next render (libslang-vk M2 contract).
+// 16:9: 356 output columns cover 320 source columns (nearest, floor —
+// the same convention BuildRowmap uses). Raw / 4:3: identity.
+static void BuildColmap(void)
+{
+    int x;
+    const int dst_w = VKFeedWidth();
+
+    for (x = 0; x < dst_w; ++x)
+    {
+        vk_colmap[x] = aspect_ratio_correct == 2
+            ? (x * SCREENWIDTH) / SCREENWIDTH_16_9
+            : x;
+    }
+}
+
+// (Re)create the input image at the current base size. Aspect cycling
+// flips 320x240 <-> 320x200 <-> 356x200 (x k); the chain re-derives its
+// FBOs and history ring from the per-frame input size on the next render
+// (libslang-vk M2 contract).
 static void EnsureInputImage(void)
 {
     slangvk_image_options io;
@@ -617,17 +659,20 @@ static void EnsureInputImage(void)
 }
 
 // Palette-LUT-expand the frame into the staging buffer at the base size.
-// The 6:5 aspect stretch (rowmap) happens first in row space; the base
-// upscale then duplicates each expanded row k times and each pixel k times
-// within the row (pure nearest: game pixels stay exact k x k blocks). One
+// The aspect stretches happen first in row/column space (6:5 rowmap for
+// 4:3, 320->356 colmap for 16:9); the base upscale then duplicates each
+// expanded row k times and each pixel k times within the row (pure
+// nearest: game pixels stay exact k x k blocks — k x k*1.1125 in 16:9,
+// where the colmap duplicates source columns). One
 // LUT pass writes the first row of each k-row block, memcpy fills the rest
 // — at 4x that is 3.7 MB of the 4.9 MB frame as memcpy. k = 1 reduces to
 // the original single-pass expansion.
 static void ExpandFrame(void)
 {
+    const int feed_w = VKFeedWidth();
     const int feed_h = VKFeedHeight();
     const int mult = vk_base_mult;
-    const size_t row_bytes = (size_t) SCREENWIDTH * mult * 4;
+    const size_t row_bytes = (size_t) feed_w * mult * 4;
     const size_t bytes = row_bytes * (size_t) (feed_h * mult);
     int x, y, rep;
 
@@ -648,9 +693,9 @@ static void ExpandFrame(void)
         unsigned char *row = vk_staging + (size_t) y * mult * row_bytes;
         unsigned char *dst = row;
 
-        for (x = 0; x < SCREENWIDTH; ++x)
+        for (x = 0; x < feed_w; ++x)
         {
-            const unsigned char *c = vk_lut[src[x]];
+            const unsigned char *c = vk_lut[src[vk_colmap[x]]];
             for (rep = 0; rep < mult; ++rep)
             {
                 dst[0] = c[0]; dst[1] = c[1]; dst[2] = c[2]; dst[3] = c[3];
@@ -940,11 +985,17 @@ void I_VK_FlagResize(void)
 
 void I_VK_ToggleAspect(void)
 {
-    aspect_ratio_correct = !aspect_ratio_correct;
+    // Cycle 4:3 -> 16:10 -> 16:9 -> 4:3, i.e. aspect_ratio_correct
+    // 1 -> 0 -> 2 -> 1 ((n + 2) % 3). The classic renderer only
+    // understands 0/1 — a persisted 2 renders as corrected 4:3 there
+    // (i_video.c / v_video.c treat any nonzero value as corrected).
+    aspect_ratio_correct = (aspect_ratio_correct + 2) % 3;
     BuildRowmap();
-    printf("I_VK: aspect correction %s — feed %dx%d, base %dx%d\n",
-           aspect_ratio_correct ? "ON (authentic 4:3)" : "OFF (raw square pixels)",
-           SCREENWIDTH, VKFeedHeight(), VKBaseWidth(), VKBaseHeight());
+    BuildColmap();
+    printf("I_VK: aspect %s — feed %dx%d, base %dx%d\n",
+           I_VK_AspectName(), VKFeedWidth(), VKFeedHeight(),
+           VKBaseWidth(), VKBaseHeight());
+    I_OverlayFlash("aspect %s", I_VK_AspectName());
     // EnsureInputImage() picks the new size up on the next frame.
 }
 
@@ -1208,6 +1259,7 @@ boolean I_VK_AttemptGraphics(void)
 
     // 9) Feed + canvas.
     BuildRowmap();
+    BuildColmap();
     memset(vk_lut, 0, sizeof(vk_lut));
     I_VideoBuffer = malloc(SCREENWIDTH * SCREENHEIGHT);
     if (I_VideoBuffer == NULL)
@@ -1237,12 +1289,12 @@ boolean I_VK_AttemptGraphics(void)
     {
         printf("I_VK: shader base resolution %dx — feed %dx%d -> base %dx%d "
                "(DevilutionX-style pre-scale before the preset chain)\n",
-               vk_base_mult, SCREENWIDTH, feed_h,
+               vk_base_mult, VKFeedWidth(), feed_h,
                VKBaseWidth(), VKBaseHeight());
     }
     printf("I_VK: feed %dx%d (%s), base %dx%d, swapchain %ux%u, present FIFO\n",
-           SCREENWIDTH, feed_h,
-           aspect_ratio_correct ? "4:3 corrected" : "raw",
+           VKFeedWidth(), feed_h,
+           I_VK_AspectName(),
            VKBaseWidth(), VKBaseHeight(),
            vk_swap_extent.width, vk_swap_extent.height);
 
@@ -1266,6 +1318,19 @@ void I_VK_SetPalette(const SDL_Color *palette) { (void) palette; }
 void I_VK_FlagResize(void)               { }
 void I_VK_ToggleAspect(void)             { }
 void I_VK_CycleBase(void)                { }
+
+const char *I_VK_AspectName(void)
+{
+    // Same names as the real path; the stub build cannot render the 16:9
+    // stretch (the classic renderer shows 2 as corrected 4:3), but the
+    // name still describes the configured mode.
+    switch (aspect_ratio_correct)
+    {
+        case 2:  return "16:9";
+        case 1:  return "4:3";
+        default: return "16:10";
+    }
+}
 void I_VK_RequestCapture(void)           { }
 void I_VK_FinishUpdate(void)             { }
 void I_VK_ShutdownGraphics(void)         { }

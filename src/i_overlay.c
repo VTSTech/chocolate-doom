@@ -10,7 +10,8 @@
 //   row 1: graphics backend   — "Vulkan | libslang-vk" or "SDL2 | ..."
 //   row 2: adapter / renderer — Vulkan device name, or the SDL2
 //                               renderer + video driver + window size
-//   row 3: active shader      — preset path + pass count, or why not
+//   row 3: active shader      — preset name (basename, no extension)
+//                               + pass count, or why not
 //   row 4: rate               — smoothed FPS + frame time + feed mode
 //                              (native, or the enlarged shader base canvas)
 //
@@ -293,6 +294,45 @@ static void OverlaySDLLine(char *dest, size_t dest_size)
     OverlayClip(dest, dest_size, raw);
 }
 
+// Shader display name: the preset's basename without extension —
+// "shaders/crt/crt-easymode.slangp" (or a Windows-style
+// "C:\doom\shaders\...\crt-easymode.slangp") becomes "crt-easymode".
+// The full path and .slangp suffix carry no information the overlay row
+// has room for (39 glyphs).
+static void OverlayShaderBaseName(char *dest, size_t dest_size)
+{
+    const char *base;
+    const char *sep;
+    const char *dot;
+    size_t len;
+
+    dest[0] = '\0';
+    if (shader_preset == NULL || shader_preset[0] == '\0')
+    {
+        return;
+    }
+
+    base = strrchr(shader_preset, '/');
+    sep = strrchr(shader_preset, '\\');
+    if (sep != NULL && (base == NULL || sep > base))
+    {
+        base = sep;
+    }
+    base = (base != NULL) ? base + 1 : shader_preset;
+
+    dot = strrchr(base, '.');
+    // A leading dot is part of the name (".hidden"), not a separator.
+    len = (dot != NULL && dot != base)
+        ? (size_t) (dot - base)
+        : strlen(base);
+    if (len >= dest_size)
+    {
+        len = dest_size - 1;
+    }
+    memcpy(dest, base, len);
+    dest[len] = '\0';
+}
+
 static void OverlayShaderLine(char *dest, size_t dest_size)
 {
     char clipped[40];
@@ -307,7 +347,7 @@ static void OverlayShaderLine(char *dest, size_t dest_size)
         return;
     }
 
-    OverlayClip(clipped, sizeof(clipped), shader_preset);
+    OverlayShaderBaseName(clipped, sizeof(clipped));
     passes = I_VK_PassCount();
     if (!I_VK_Active())
     {
@@ -338,30 +378,32 @@ static void OverlayShaderLine(char *dest, size_t dest_size)
     OverlayClip(dest, dest_size, raw);
 }
 
-// Feed mode tag: the canvas the shader chain sees — native 320x240/320x200,
-// or the enlarged base (shader_base_resolution / -vkbase) while the Vulkan
-// path runs, e.g. "640x480 4:3 (2x)".
+// Feed mode tag: the canvas the shader chain sees — native 320x240 /
+// 320x200 / 356x200 (aspect_ratio_correct 1 / 0 / 2), or the enlarged
+// base (shader_base_resolution / -vkbase) while the Vulkan path runs,
+// e.g. "640x480 4:3 (2x)".
 static void OverlayModeLine(char *dest, size_t dest_size)
 {
     int w = SCREENWIDTH;
     int h = aspect_ratio_correct ? SCREENHEIGHT_4_3 : SCREENHEIGHT;
     int scale = 1;
+    const char *tag = aspect_ratio_correct ? "4:3" : "16:10";
 
     if (I_VK_Active())
     {
         I_VK_FeedSize(&w, &h);
         scale = I_VK_BaseScale();
+        tag = I_VK_AspectName();
     }
 
     if (scale > 1)
     {
         snprintf(dest, dest_size, "%dx%d %s (%dx)",
-                 w, h, aspect_ratio_correct ? "4:3" : "1:1", scale);
+                 w, h, tag, scale);
     }
     else
     {
-        snprintf(dest, dest_size, "%dx%d %s",
-                 w, h, aspect_ratio_correct ? "4:3" : "1:1");
+        snprintf(dest, dest_size, "%dx%d %s", w, h, tag);
     }
 }
 

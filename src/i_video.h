@@ -31,6 +31,11 @@
 
 #define SCREENHEIGHT_4_3 240
 
+// Feed width used when aspect_ratio_correct=2 (VK presenter only): the
+// 320x200 frame nearest-stretched to a 16:9 canvas (356/200 = 1.78).
+
+#define SCREENWIDTH_16_9 356
+
 typedef boolean (*grabmouse_callback_t)(void);
 
 // Called by D_DoomMain,

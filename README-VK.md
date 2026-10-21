@@ -81,7 +81,7 @@ point `shader` at any `.slangp` in it; `-shader` accepts any path.
 | `-novulkan` | Force the classic SDL2 renderer for this run (`usevulkan = 0` persists) |
 | `-noaspect` | Feed raw 320x200 (16:10) instead of the authentic 4:3 stretch |
 | `-vkbase <n>` | Shader base resolution: 2/3/4 = doubled/tripled/quadrupled chain input (or a pixel width, e.g. `640`); persists in `shader_base_resolution` |
-| **F11** (in-game) | Toggle 4:3 ↔ raw aspect live; feed re-creates, chain re-derives |
+| **F11** (in-game) | Cycle aspect 4:3 → 16:10 → 16:9 live; feed re-creates, chain re-derives |
 | **Scroll Lock** (in-game) | Toggle the stats overlay (below) |
 | **PrintScreen** (in-game) | Screenshot: read back the next presented frame to the first free `vkshotNNN.tga` (same channel-correct TGA writer as `-vkcapture`) |
 | **F12** (in-game) | Cycle the shader base resolution 1x → 2x → 3x → 4x → 1x (persists in `shader_base_resolution`) |
@@ -98,7 +98,7 @@ looking at" at a glance:
 ```
 Vulkan | libslang-vk
 llvmpipe (LLVM 19.1.7, 256 bits)
-crt/crt-easymode.slangp | 3 passes
+crt-easymode | 3 passes
 314.2 fps | 3.18 ms | 320x240 4:3
 ```
 
@@ -106,12 +106,13 @@ crt/crt-easymode.slangp | 3 passes
 - Row 2 is the adapter (Vulkan device name) or, on the classic path,
   the SDL renderer, video driver and window size
   (e.g. `opengl | x11 | 640x480`).
-- Row 3 is the active preset with its pass count; a configured preset
-  that failed to start is shown as `(unused)`, `no shader` when none is
-  set.
+- Row 3 is the active preset — its file name without path or extension —
+  with its pass count; a configured preset that failed to start is shown
+  as `(unused)`, `no shader` when none is set.
 - Row 4 is the smoothed frame rate and frame time, plus the feed mode
-  (`320x240 4:3` or `320x200 1:1`, the same state F11 flips; with a base
-  multiplier active it shows the enlarged canvas, e.g. `640x480 4:3 (2x)`).
+  (`320x240 4:3`, `320x200 16:10` or `356x200 16:9`, the state F11
+  cycles; with a base multiplier active it shows the enlarged canvas,
+  e.g. `640x480 4:3 (2x)`).
   Under normal play the engine caps rendering at its 35 Hz tic rate — that
   cap is what the counter honestly reports; `-timedemo` shows real
   throughput (several hundred fps on lavapipe, for example).
@@ -125,10 +126,11 @@ file and `-novkstats` control the startup state (default: on). Note
 that Scroll Lock is intercepted by the overlay toggle and therefore
 not available for game bindings while this fork runs.
 
-The hotkeys report back through the overlay itself: **PrintScreen** and
-**F12** each add a short-lived amber feedback row to the box for two
-seconds — `shot vkshot000.tga` / `base 640x480 (2x)` — so the action is
-confirmed without leaving the game. While the Vulkan path is live,
+The hotkeys report back through the overlay itself: **PrintScreen**,
+**F12** and **F11** each add a short-lived amber feedback row to the box
+for two seconds — `shot vkshot000.tga` / `base 640x480 (2x)` /
+`aspect 16:9` — so the action is confirmed without leaving the game.
+While the Vulkan path is live,
 F11 (vanilla: gamma) is the aspect toggle and F12 (vanilla: demo/net
 spy camera) is the base-resolution cycle; PrintScreen is unused by the
 vanilla game. All three only intercept while the Vulkan path is active
@@ -140,10 +142,27 @@ DOOM's software renderer produces 320×200 indexed 8-bit frames — VGA mode
 13h with non-square pixels: 4:3 on the CRT, 16:10 in square-pixel terms.
 The presenter LUT-expands those indices to RGBA8 through the current
 PLAYPAL (gamma and the 6-bit VGA quantization included — the exact same
-values the classic path uses) and, when `aspect_ratio_correct` is on, does
-a 6:5 nearest row stretch to 320×240 so CRT geometry and bezel presets see
-the authentic shape (this is what libslang-vk's aspect-corrected viewport
-derives its letterbox from — SPEC F6). F11 flips the two modes at runtime.
+values the classic path uses) and stretches the frame according to the
+tri-state `aspect_ratio_correct`:
+
+| Value | Mode | Feed | How |
+|-------|------|------|-----|
+| `1` (default) | 4:3 | 320×240 | 6:5 nearest row stretch (authentic mode 13h geometry) |
+| `0` | 16:10 | 320×200 | raw square pixels, no stretch |
+| `2` | 16:9 | 356×200 | 320→356 nearest column stretch on the raw feed |
+
+libslang-vk's aspect-corrected viewport derives its letterbox from the
+feed shape (SPEC F6), so a 16:9 feed fills a 16:9 display edge to edge
+(and letterboxes correctly on anything else). **F11 cycles the three
+modes live** — 4:3 → 16:10 → 16:9 → back — and the choice persists
+through the config file like every other setting. The value `2` is a
+Vulkan-path-only mode: if the run falls back to the classic SDL2
+renderer, any nonzero value renders as corrected 4:3 there.
+
+The 16:9 mode is a *stretch*, not a wider view: the full 320×200 frame
+is widened about 11% relative to square pixels (how the console ports
+fill widescreen sets). True widescreen — more rendered columns, wider
+FOV — would mean engine-side renderer changes; see Known limitations.
 
 ## Shader base resolution (double / triple / quadruple)
 
@@ -172,10 +191,10 @@ re-derives every pass FBO from the per-frame input, the overlay's mode
 row updates immediately, and the choice persists through
 `shader_base_resolution` (multiplier form) on exit.
 
-What it does: after the palette LUT expansion (and the 4:3 stretch when
-enabled), the frame is duplicated k-fold — each game pixel becomes an exact
-k×k block, pure nearest-neighbor, no new detail — and *that* image is what
-the preset chain sees. The chain re-derives every pass FBO from the input
+What it does: after the palette LUT expansion (and the aspect stretch
+when enabled), the frame is duplicated k-fold — each game pixel becomes
+an exact k×k block, pure nearest-neighbor, no new detail — and *that*
+image is what the preset chain sees. The chain re-derives every pass FBO from the input
 size, so a `2xScaleHQ` fed a 640×480 base really does its 2x work at 2x
 game scale, and the final pass maps the result onto the window as before.
 
@@ -203,11 +222,12 @@ log prints the effective choice:
 
 ```
 I_VK: shader base resolution 2x — feed 320x240 -> base 640x480 (DevilutionX-style pre-scale before the preset chain)
-I_VK: feed 320x240 (4:3 corrected), base 640x480, swapchain 1920x1080, present FIFO
+I_VK: feed 320x240 (4:3), base 640x480, swapchain 1920x1080, present FIFO
 ```
 
 The F11 aspect toggle composes with it (base follows the feed: 640×480 ↔
-640×400), and the overlay's mode row always shows the live canvas.
+640×400 ↔ 712×400), and the overlay's mode row always shows the live
+canvas.
 
 ## Debug aids
 
@@ -271,10 +291,11 @@ message, via `I_Error`. The games' own sources stay C99 throughout.
   wrote `shader_base_resolution 3` back to the config file — the choice
   persists. Hotkeys also exercised under `-vkdebug` with zero validation
   messages.
-- F11 aspect toggle exercised live mid-demo: feed re-created 320x240 →
-  320x200, chain re-derived, and the presentation letterbox switched
-  exactly as specified (edge rows content 57.6/74.1 → pure black 0.0/0.0,
-  non-black coverage 99.6% → 83.0%).
+- F11 aspect cycle exercised live mid-demo: feed re-created 320x240 →
+  320x200 → 356x200, chain re-derived, and the presentation letterbox
+  switched exactly as specified (edge rows content 57.6/74.1 → pure black
+  0.0/0.0, non-black coverage 99.6% → 83.0%; 16:9 fills a 16:9 target
+  edge to edge).
 - Stats overlay (v0.1.1): 24/24 automated checks on lavapipe — default-on
   box present, `-novkstats` and Scroll Lock each remove it on both
   backends, and the overlay text was decoded glyph-by-glyph out of the
@@ -291,6 +312,13 @@ message, via `I_Error`. The games' own sources stay C99 throughout.
 
 ## Known limitations
 
+- 16:9 mode is a stretch, not true widescreen: the 320×200 frame is
+  widened to fill a 16:9 canvas (how the console ports filled widescreen
+  sets). True widescreen — rendering extra columns with a wider FOV —
+  requires engine-side renderer changes (Crispy Doom is the reference
+  implementation) and is out of scope for the presenter.
+- On the classic SDL2 renderer (fallback), `aspect_ratio_correct = 2`
+  renders as corrected 4:3; the 16:9 feed mode is Vulkan-path-only.
 - The Vulkan device is created by the library (create mode); on
   multi-GPU systems it picks the first graphics-capable device and checks
   that it can present to the window's surface. Hosts wanting full control

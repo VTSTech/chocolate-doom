@@ -737,7 +737,9 @@ void WritePNGfile(char *filename, pixel_t *data,
     int w_factor, h_factor;
     byte *rowbuf;
 
-    if (aspect_ratio_correct == 1)
+    // Any nonzero aspect_ratio_correct (including 2, the VK presenter's
+    // 16:9 mode) is corrected 4:3 on the classic renderer.
+    if (aspect_ratio_correct)
     {
         // scale up to accommodate aspect ratio correction
         w_factor = 5;

@@ -1595,7 +1595,11 @@ void I_InitGraphics(void)
         fullscreen = true;
     }
 
-    if (aspect_ratio_correct == 1)
+    // aspect_ratio_correct is tri-state on the Vulkan presenter (F11:
+    // 1 = 4:3, 0 = 16:10 raw, 2 = 16:9 widescreen). The classic renderer
+    // only understands 0/1, so any nonzero value — including a persisted
+    // 2 from a Vulkan run — renders as corrected 4:3 here.
+    if (aspect_ratio_correct)
     {
         actualheight = SCREENHEIGHT_4_3;
     }

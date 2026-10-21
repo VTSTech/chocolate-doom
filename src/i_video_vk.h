@@ -92,9 +92,16 @@ void I_VK_SetPalette(const SDL_Color *palette);
 // From HandleWindowEvent(SDL_WINDOWEVENT_RESIZED).
 void I_VK_FlagResize(void);
 
-// Runtime aspect toggle (F11): flips the feed between 320x240 (4:3, the
-// authentic VGA mode 13h stretch) and raw 320x200 square pixels.
+// Runtime aspect toggle (F11): cycles the feed 4:3 -> 16:10 -> 16:9 ->
+// 4:3 — 320x240 (authentic VGA mode 13h stretch), raw 320x200 square
+// pixels, then 356x200 (16:9 widescreen column stretch). Persisted as the
+// tri-state aspect_ratio_correct (0 / 1 / 2); the classic renderer only
+// understands 0/1 and renders 2 as corrected 4:3.
 void I_VK_ToggleAspect(void);
+
+// Current aspect mode name ("4:3" / "16:10" / "16:9") for the stats
+// overlay's feed row and the F11 feedback flash.
+const char *I_VK_AspectName(void);
 
 // Runtime hotkeys (from I_GetEvent, VK path only):
 // PrintScreen -> I_VK_RequestCapture: read back the next presented frame
