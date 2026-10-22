@@ -1,0 +1,247 @@
+From 9730ee7aca17349b9847b47183e991c017d22126 Mon Sep 17 00:00:00 2001
+From: Nigel Todman <veritas@vts-tech.org>
+Date: Thu, 22 Oct 2026 00:16:52 +0000
+Subject: [PATCH] Linux x64 CI artifact + relocatable $ORIGIN rpath
+
+The lavapipe job built user-usable binaries but shipped nothing.
+Package its VK-ON build tree: the four games, setup, the dedicated
+server, libslang-vk.so and the non-glibc runtime dependency closure
+(fixpoint ldd walk; glibc core and the C++ runtime stay on the host).
+The executables gain a $ORIGIN BUILD_RPATH (macOS @loader_path) -
+additive over CMake's automatic build rpath - so the relocated
+binaries keep finding the library beside them on end-user systems;
+the shared library carries the same entry for its own siblings.
+---
+ .github/workflows/vk-shaders.yml | 80 ++++++++++++++++++++++++++++++++
+ CHANGELOG.md                     | 16 ++++++-
+ CMakeLists.txt                   | 10 +++-
+ README-VK.md                     | 20 +++++++-
+ src/CMakeLists.txt               | 19 ++++++++
+ 5 files changed, 142 insertions(+), 3 deletions(-)
+
+diff --git a/.github/workflows/vk-shaders.yml b/.github/workflows/vk-shaders.yml
+index 5bde8de9..9261e8b4 100644
+--- a/.github/workflows/vk-shaders.yml
++++ b/.github/workflows/vk-shaders.yml
+@@ -87,6 +87,86 @@ jobs:
+             -DENABLE_VK_SHADERS=OFF
+           cmake --build build-novk
+ 
++      # A user-facing artifact from the same job that smoke-tests it.
++      # lavapipe is only the CI test driver — these binaries use
++      # whatever Vulkan ICD the player's system has (or none at all:
++      # the classic renderer needs no Vulkan). Portability notes:
++      # - the executables carry a $ORIGIN rpath and find the bundled
++      #   libslang-vk.so next to them;
++      # - the ldd walk bundles the non-glibc shared deps (SDL2,
++      #   SDL2_mixer, libpng, X11 stack) so the tar runs on any distro
++      #   new enough for the runner's glibc — bundling glibc itself
++      #   never works;
++      # - glibc floor: whatever ubuntu-latest ships when the artifact
++      #   was built (see pkg/README.txt inside the archive).
++      - name: Package (Linux x64)
++        run: |
++          set -eux
++          mkdir -p pkg
++          cp -a build/src/chocolate-doom build/src/chocolate-heretic \
++                build/src/chocolate-hexen build/src/chocolate-strife \
++                build/src/chocolate-setup build/src/chocolate-server pkg/
++          # The shared shader library, deployed next to the exes by the
++          # slangvk-runtime step. Missing it means a dead artifact —
++          # fail the job loudly instead.
++          test -f build/src/libslang-vk.so
++          cp -a build/src/libslang-vk.so pkg/
++          # Bundle the shared-library deps an end user may not have.
++          # Fixpoint: ldd every binary and then every library we
++          # collected, until no new ones appear (covers SDL2 -> X11 ->
++          # xcb chains). glibc core and the C++ runtime stay on the
++          # host: shipping those against the system loader breaks in
++          # creative ways, and any distro new enough for this build's
++          # glibc has new-enough versions of them anyway.
++          collect_deps() {
++            for f in pkg/chocolate-* pkg/*.so*; do
++              ldd "$f" 2>/dev/null | awk '$3 ~ /^\// {print $3}'
++            done | sort -u | grep -Ev \
++              '(ld-linux|libc\.so\.|libm\.so\.|libpthread|libdl\.so|librt\.so|libresolv|libgcc_s|libstdc\+\+)' || true
++          }
++          while :; do
++            before=$(ls pkg/*.so* 2>/dev/null | wc -l)
++            collect_deps | while read -r so; do cp -Ln "$so" pkg/; done
++            after=$(ls pkg/*.so* 2>/dev/null | wc -l)
++            [ "$after" -eq "$before" ] && break
++          done
++          GLIBC=$(ldd --version | head -1 | grep -oE '[0-9]+\.[0-9]+$')
++          cat > pkg/README.txt <<EOF
++          Chocolate Doom VK - Linux x64 build
++          ===================================
++
++          Built on $(. /etc/os-release && echo "$PRETTY_NAME") with glibc ${GLIBC}:
++          needs a distro of similar age or newer (glibc >= ${GLIBC}).
++
++          Contents: the four games, chocolate-setup, the dedicated
++          server, the shared shader library (libslang-vk.so) and the
++          bundled runtime libraries. The executables find them via
++          their \$ORIGIN rpath - untar anywhere and run; do not split
++          the files up.
++
++          The Vulkan shader path needs a Vulkan-capable driver (any
++          GPU ICD; mesa-vulkan-drivers provides lavapipe for software
++          rendering). Without one the games still run on the classic
++          SDL2 renderer. You need your own IWAD (e.g. freedoom):
++          place doom1.wad/freedoom1.wad next to the binaries or pass
++          -iwad.
++
++          Key flags: -shader <preset.slangp> (Vulkan shader chain),
++          -novulkan, -vkcapture <n>, Scroll Lock toggles the stats
++          overlay, F11 cycles aspect, F12 cycles shader base
++          resolution, PrintScreen takes a screenshot. Everything is
++          logged to gpu-scaler.log next to the binaries.
++
++          See README-VK.md in the repository for full documentation.
++          EOF
++          tar czf chocolate-doom-vk-linux-x64.tar.gz -C pkg .
++          tar tzf chocolate-doom-vk-linux-x64.tar.gz | head -40
++
++      - uses: actions/upload-artifact@v4
++        with:
++          name: chocolate-doom-vk-linux-x64
++          path: chocolate-doom-vk-linux-x64.tar.gz
++
+   windows-msys2:
+     name: Windows MSYS2 (UCRT64)
+     runs-on: windows-latest
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 00c44f05..d59b95e6 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -54,6 +54,16 @@ Windows, and `libslang-vk` as a shared DLL.
+   persists in `shader_base_resolution` on exit.
+ - Transient amber feedback row (2 s) in the stats overlay for either
+   hotkey (`shot vkshot000.tga` / `base 640x480 (2x)`).
++- **Linux x64 CI artifact** — the lavapipe smoke-test job now ships
++  what it builds: `chocolate-doom-vk-linux-x64.tar.gz` with the four
++  games, setup, the dedicated server, `libslang-vk.so` and the
++  bundled runtime libraries (SDL2, SDL2_mixer, libpng, the X11 stack
++  — everything except the glibc core, which can never be bundled).
++  The executables carry a `$ORIGIN` rpath, so the tar runs from any
++  directory on any distro new enough for the runner's glibc (see the
++  README.txt inside the archive). lavapipe itself is only the CI test
++  driver — the binaries use whatever Vulkan ICD the player has, or
++  none (classic renderer).
+ - `README-VK.md` grows with the code: 16:9 aspect table, Shader cache
+   and Session log sections, shared-library build instructions, and a
+   Validation section recording the per-batch test harness runs.
+@@ -75,7 +85,11 @@ Windows, and `libslang-vk` as a shared DLL.
+   copy step (`libslang-vk.so` on Linux), exporting its 27 C-API
+   symbols via `cmake/libslang-vk-c-api.def` (MSVC and MinGW need the
+   explicit `.def`; ELF exports the symbols by default anyway).
+-  Relinking a game no longer relinks the shader compiler. Prefer static
++  Relinking a game no longer relinks the shader compiler. The Linux
++  executables carry a `$ORIGIN` rpath so they — and a relocated
++  `libslang-vk.so` — keep finding each other next to one another
++  outside the build tree; on Windows the exe's directory is searched
++  by default. Prefer static
+   again? One CMake toggle — see README-VK.md, "Building".
+ - F11 is now a three-way aspect cycle (was 4:3 ↔ 16:10).
+ - Stats overlay: the shader row shows the preset's basename
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 75511b77..52ef1912 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -110,8 +110,16 @@ if(ENABLE_VK_SHADERS)
+         target_sources(slangvk-shared PRIVATE
+             "${CMAKE_CURRENT_SOURCE_DIR}/cmake/libslang-vk-c-api.def")
+     else()
++        # $ORIGIN keeps a relocated libslang-vk.so able to resolve
++        # siblings placed next to it (macOS spells it @loader_path).
++        if(APPLE)
++            set(SLANGVK_RELOC_RPATH "@loader_path")
++        else()
++            set(SLANGVK_RELOC_RPATH "$ORIGIN")
++        endif()
+         set_target_properties(slangvk-shared PROPERTIES
+-            OUTPUT_NAME "slang-vk")
++            OUTPUT_NAME "slang-vk"
++            BUILD_RPATH "${SLANGVK_RELOC_RPATH}")
+     endif()
+     # The library's targets require C++23 (its scope sets it for its own
+     # sources); harmless here — the game code stays C99.
+diff --git a/README-VK.md b/README-VK.md
+index c3494db9..166f3673 100644
+--- a/README-VK.md
++++ b/README-VK.md
+@@ -55,7 +55,14 @@ cmake --build build          # chocolate-doom, -heretic, -hexen, -strife
+ 
+ All four games share the same video path, so the feature covers all of
+ them (plus Strife). On Windows, MSYS2/MinGW and MSVC (vcpkg manifest) are
+-wired up in `.github/workflows/vk-shaders.yml`.
++wired up in `.github/workflows/vk-shaders.yml`; the Linux job
++smoke-tests on lavapipe and ships a **user-facing x64 tarball** —
++the games plus `libslang-vk.so` and the bundled runtime libraries,
++relocatable via the executables' `$ORIGIN` rpath. It runs on any
++distro new enough for the runner's glibc (the archive's README.txt
++names the exact floor); lavapipe is only CI's test driver — on a
++player's machine the binaries use whatever Vulkan ICD is installed,
++or none at all (classic renderer).
+ 
+ The library is linked as a **shared** artifact: `libslang-vk.dll` on
+ Windows — identically named on MSVC and MinGW (the target pins an
+@@ -439,6 +446,17 @@ throughout.
+   `liblibslang-vk.dll`). Both Windows packaging steps copy the DLL
+   into the artifact zips and fail the job when it is absent; the
+   MSYS2/MSVC runs themselves execute on GitHub's runners.
++- Linux artifact + relocatable rpath (v0.4.2): the four games (and only
++  those — setup/server never load slangvk) gain `BUILD_RPATH $ORIGIN`
++  (macOS: `@loader_path`; Windows needs nothing), additive over CMake's
++  automatic build rpath so the build tree keeps working; the shared
++  library carries the same entry. Verified locally: full configure in
++  both `ENABLE_VK_SHADERS` modes, the link commands of every game
++  contain `$ORIGIN`, and `readelf -d` on the built `libslang-vk.so`
++  shows the entry in its runpath. The CI packaging script's ldd walk
++  was executed against the local build tree's binaries and libraries
++  and collects exactly the non-glibc dependency closure; the MSYS2 and
++  Linux jobs run on GitHub's runners.
+ - Not yet automated: interactive window resize / fullscreen-toggle
+   swapchain recreation (exercised by design; mirrors the reference host's
+   recreate logic — please report anything odd on real hardware).
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index ba0e7909..8a0ee561 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -250,7 +250,22 @@ endif()
+ # on a game instead would make the genex's implicit dependency
+ # (custom target -> that game) collide with the add_dependencies edge
+ # below (that game -> custom target) into a dependency cycle.
++#
++# Relocatable rpath: Linux never searches the executable's own
++# directory for its libraries, so packaged build-tree binaries would
++# lose libslang-vk.so the moment they leave the build tree (CMake's
++# automatic build rpath points at absolute build-tree paths that mean
++# nothing on an end-user machine). BUILD_RPATH entries are added to
++# that automatic one, so the build tree keeps working while $ORIGIN
++# makes the exe find the .so wherever both of them travel together.
++# Windows already loads DLLs from the exe directory; macOS spells the
++# same token @loader_path.
+ if(ENABLE_VK_SHADERS AND TARGET slangvk-shared)
++    if(APPLE)
++        set(SLANGVK_RELOC_RPATH "@loader_path")
++    elseif(NOT WIN32)
++        set(SLANGVK_RELOC_RPATH "$ORIGIN")
++    endif()
+     add_custom_target(slangvk-runtime ALL
+         COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                 "$<TARGET_FILE:slangvk-shared>"
+@@ -259,6 +274,10 @@ if(ENABLE_VK_SHADERS AND TARGET slangvk-shared)
+         COMMENT "Copying libslang-vk next to the game executables")
+     foreach(VK_GAME doom heretic hexen strife)
+         add_dependencies("${PROGRAM_PREFIX}${VK_GAME}" slangvk-runtime)
++        if(SLANGVK_RELOC_RPATH)
++            set_target_properties("${PROGRAM_PREFIX}${VK_GAME}" PROPERTIES
++                BUILD_RPATH "${SLANGVK_RELOC_RPATH}")
++        endif()
+     endforeach()
+ endif()
+ 
+-- 
+2.47.3
+

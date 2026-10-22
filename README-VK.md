@@ -55,7 +55,14 @@ cmake --build build          # chocolate-doom, -heretic, -hexen, -strife
 
 All four games share the same video path, so the feature covers all of
 them (plus Strife). On Windows, MSYS2/MinGW and MSVC (vcpkg manifest) are
-wired up in `.github/workflows/vk-shaders.yml`.
+wired up in `.github/workflows/vk-shaders.yml`; the Linux job
+smoke-tests on lavapipe and ships a **user-facing x64 tarball** —
+the games plus `libslang-vk.so` and the bundled runtime libraries,
+relocatable via the executables' `$ORIGIN` rpath. It runs on any
+distro new enough for the runner's glibc (the archive's README.txt
+names the exact floor); lavapipe is only CI's test driver — on a
+player's machine the binaries use whatever Vulkan ICD is installed,
+or none at all (classic renderer).
 
 The library is linked as a **shared** artifact: `libslang-vk.dll` on
 Windows — identically named on MSVC and MinGW (the target pins an
@@ -439,6 +446,17 @@ throughout.
   `liblibslang-vk.dll`). Both Windows packaging steps copy the DLL
   into the artifact zips and fail the job when it is absent; the
   MSYS2/MSVC runs themselves execute on GitHub's runners.
+- Linux artifact + relocatable rpath (v0.4.2): the four games (and only
+  those — setup/server never load slangvk) gain `BUILD_RPATH $ORIGIN`
+  (macOS: `@loader_path`; Windows needs nothing), additive over CMake's
+  automatic build rpath so the build tree keeps working; the shared
+  library carries the same entry. Verified locally: full configure in
+  both `ENABLE_VK_SHADERS` modes, the link commands of every game
+  contain `$ORIGIN`, and `readelf -d` on the built `libslang-vk.so`
+  shows the entry in its runpath. The CI packaging script's ldd walk
+  was executed against the local build tree's binaries and libraries
+  and collects exactly the non-glibc dependency closure; the MSYS2 and
+  Linux jobs run on GitHub's runners.
 - Not yet automated: interactive window resize / fullscreen-toggle
   swapchain recreation (exercised by design; mirrors the reference host's
   recreate logic — please report anything odd on real hardware).

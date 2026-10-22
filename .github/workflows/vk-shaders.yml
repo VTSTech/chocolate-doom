@@ -87,6 +87,86 @@ jobs:
             -DENABLE_VK_SHADERS=OFF
           cmake --build build-novk
 
+      # A user-facing artifact from the same job that smoke-tests it.
+      # lavapipe is only the CI test driver — these binaries use
+      # whatever Vulkan ICD the player's system has (or none at all:
+      # the classic renderer needs no Vulkan). Portability notes:
+      # - the executables carry a $ORIGIN rpath and find the bundled
+      #   libslang-vk.so next to them;
+      # - the ldd walk bundles the non-glibc shared deps (SDL2,
+      #   SDL2_mixer, libpng, X11 stack) so the tar runs on any distro
+      #   new enough for the runner's glibc — bundling glibc itself
+      #   never works;
+      # - glibc floor: whatever ubuntu-latest ships when the artifact
+      #   was built (see pkg/README.txt inside the archive).
+      - name: Package (Linux x64)
+        run: |
+          set -eux
+          mkdir -p pkg
+          cp -a build/src/chocolate-doom build/src/chocolate-heretic \
+                build/src/chocolate-hexen build/src/chocolate-strife \
+                build/src/chocolate-setup build/src/chocolate-server pkg/
+          # The shared shader library, deployed next to the exes by the
+          # slangvk-runtime step. Missing it means a dead artifact —
+          # fail the job loudly instead.
+          test -f build/src/libslang-vk.so
+          cp -a build/src/libslang-vk.so pkg/
+          # Bundle the shared-library deps an end user may not have.
+          # Fixpoint: ldd every binary and then every library we
+          # collected, until no new ones appear (covers SDL2 -> X11 ->
+          # xcb chains). glibc core and the C++ runtime stay on the
+          # host: shipping those against the system loader breaks in
+          # creative ways, and any distro new enough for this build's
+          # glibc has new-enough versions of them anyway.
+          collect_deps() {
+            for f in pkg/chocolate-* pkg/*.so*; do
+              ldd "$f" 2>/dev/null | awk '$3 ~ /^\// {print $3}'
+            done | sort -u | grep -Ev \
+              '(ld-linux|libc\.so\.|libm\.so\.|libpthread|libdl\.so|librt\.so|libresolv|libgcc_s|libstdc\+\+)' || true
+          }
+          while :; do
+            before=$(ls pkg/*.so* 2>/dev/null | wc -l)
+            collect_deps | while read -r so; do cp -Ln "$so" pkg/; done
+            after=$(ls pkg/*.so* 2>/dev/null | wc -l)
+            [ "$after" -eq "$before" ] && break
+          done
+          GLIBC=$(ldd --version | head -1 | grep -oE '[0-9]+\.[0-9]+$')
+          cat > pkg/README.txt <<EOF
+          Chocolate Doom VK - Linux x64 build
+          ===================================
+
+          Built on $(. /etc/os-release && echo "$PRETTY_NAME") with glibc ${GLIBC}:
+          needs a distro of similar age or newer (glibc >= ${GLIBC}).
+
+          Contents: the four games, chocolate-setup, the dedicated
+          server, the shared shader library (libslang-vk.so) and the
+          bundled runtime libraries. The executables find them via
+          their \$ORIGIN rpath - untar anywhere and run; do not split
+          the files up.
+
+          The Vulkan shader path needs a Vulkan-capable driver (any
+          GPU ICD; mesa-vulkan-drivers provides lavapipe for software
+          rendering). Without one the games still run on the classic
+          SDL2 renderer. You need your own IWAD (e.g. freedoom):
+          place doom1.wad/freedoom1.wad next to the binaries or pass
+          -iwad.
+
+          Key flags: -shader <preset.slangp> (Vulkan shader chain),
+          -novulkan, -vkcapture <n>, Scroll Lock toggles the stats
+          overlay, F11 cycles aspect, F12 cycles shader base
+          resolution, PrintScreen takes a screenshot. Everything is
+          logged to gpu-scaler.log next to the binaries.
+
+          See README-VK.md in the repository for full documentation.
+          EOF
+          tar czf chocolate-doom-vk-linux-x64.tar.gz -C pkg .
+          tar tzf chocolate-doom-vk-linux-x64.tar.gz | head -40
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chocolate-doom-vk-linux-x64
+          path: chocolate-doom-vk-linux-x64.tar.gz
+
   windows-msys2:
     name: Windows MSYS2 (UCRT64)
     runs-on: windows-latest

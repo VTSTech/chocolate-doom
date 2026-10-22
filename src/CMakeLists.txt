@@ -250,7 +250,22 @@ endif()
 # on a game instead would make the genex's implicit dependency
 # (custom target -> that game) collide with the add_dependencies edge
 # below (that game -> custom target) into a dependency cycle.
+#
+# Relocatable rpath: Linux never searches the executable's own
+# directory for its libraries, so packaged build-tree binaries would
+# lose libslang-vk.so the moment they leave the build tree (CMake's
+# automatic build rpath points at absolute build-tree paths that mean
+# nothing on an end-user machine). BUILD_RPATH entries are added to
+# that automatic one, so the build tree keeps working while $ORIGIN
+# makes the exe find the .so wherever both of them travel together.
+# Windows already loads DLLs from the exe directory; macOS spells the
+# same token @loader_path.
 if(ENABLE_VK_SHADERS AND TARGET slangvk-shared)
+    if(APPLE)
+        set(SLANGVK_RELOC_RPATH "@loader_path")
+    elseif(NOT WIN32)
+        set(SLANGVK_RELOC_RPATH "$ORIGIN")
+    endif()
     add_custom_target(slangvk-runtime ALL
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "$<TARGET_FILE:slangvk-shared>"
@@ -259,6 +274,10 @@ if(ENABLE_VK_SHADERS AND TARGET slangvk-shared)
         COMMENT "Copying libslang-vk next to the game executables")
     foreach(VK_GAME doom heretic hexen strife)
         add_dependencies("${PROGRAM_PREFIX}${VK_GAME}" slangvk-runtime)
+        if(SLANGVK_RELOC_RPATH)
+            set_target_properties("${PROGRAM_PREFIX}${VK_GAME}" PROPERTIES
+                BUILD_RPATH "${SLANGVK_RELOC_RPATH}")
+        endif()
     endforeach()
 endif()
 

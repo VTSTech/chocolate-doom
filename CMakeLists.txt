@@ -110,8 +110,16 @@ if(ENABLE_VK_SHADERS)
         target_sources(slangvk-shared PRIVATE
             "${CMAKE_CURRENT_SOURCE_DIR}/cmake/libslang-vk-c-api.def")
     else()
+        # $ORIGIN keeps a relocated libslang-vk.so able to resolve
+        # siblings placed next to it (macOS spells it @loader_path).
+        if(APPLE)
+            set(SLANGVK_RELOC_RPATH "@loader_path")
+        else()
+            set(SLANGVK_RELOC_RPATH "$ORIGIN")
+        endif()
         set_target_properties(slangvk-shared PROPERTIES
-            OUTPUT_NAME "slang-vk")
+            OUTPUT_NAME "slang-vk"
+            BUILD_RPATH "${SLANGVK_RELOC_RPATH}")
     endif()
     # The library's targets require C++23 (its scope sets it for its own
     # sources); harmless here — the game code stays C99.

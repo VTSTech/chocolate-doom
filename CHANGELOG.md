@@ -54,6 +54,16 @@ Windows, and `libslang-vk` as a shared DLL.
   persists in `shader_base_resolution` on exit.
 - Transient amber feedback row (2 s) in the stats overlay for either
   hotkey (`shot vkshot000.tga` / `base 640x480 (2x)`).
+- **Linux x64 CI artifact** — the lavapipe smoke-test job now ships
+  what it builds: `chocolate-doom-vk-linux-x64.tar.gz` with the four
+  games, setup, the dedicated server, `libslang-vk.so` and the
+  bundled runtime libraries (SDL2, SDL2_mixer, libpng, the X11 stack
+  — everything except the glibc core, which can never be bundled).
+  The executables carry a `$ORIGIN` rpath, so the tar runs from any
+  directory on any distro new enough for the runner's glibc (see the
+  README.txt inside the archive). lavapipe itself is only the CI test
+  driver — the binaries use whatever Vulkan ICD the player has, or
+  none (classic renderer).
 - `README-VK.md` grows with the code: 16:9 aspect table, Shader cache
   and Session log sections, shared-library build instructions, and a
   Validation section recording the per-batch test harness runs.
@@ -75,7 +85,11 @@ Windows, and `libslang-vk` as a shared DLL.
   copy step (`libslang-vk.so` on Linux), exporting its 27 C-API
   symbols via `cmake/libslang-vk-c-api.def` (MSVC and MinGW need the
   explicit `.def`; ELF exports the symbols by default anyway).
-  Relinking a game no longer relinks the shader compiler. Prefer static
+  Relinking a game no longer relinks the shader compiler. The Linux
+  executables carry a `$ORIGIN` rpath so they — and a relocated
+  `libslang-vk.so` — keep finding each other next to one another
+  outside the build tree; on Windows the exe's directory is searched
+  by default. Prefer static
   again? One CMake toggle — see README-VK.md, "Building".
 - F11 is now a three-way aspect cycle (was 4:3 ↔ 16:10).
 - Stats overlay: the shader row shows the preset's basename
