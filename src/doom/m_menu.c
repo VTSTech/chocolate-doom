@@ -184,6 +184,7 @@ static void M_QuitDOOM(int choice);
 
 static void M_ChangeMessages(int choice);
 static void M_ChangeSensitivity(int choice);
+static void M_ChangeFOV(int choice);		// [CDVK] FOV
 static void M_SfxVol(int choice);
 static void M_MusicVol(int choice);
 static void M_ChangeDetail(int choice);
@@ -331,6 +332,8 @@ enum
     option_empty1,
     mousesens,
     option_empty2,
+    fovitem,		// [CDVK] FOV
+    option_empty3,
     soundvol,
     opt_end
 } options_e;
@@ -343,6 +346,8 @@ menuitem_t OptionsMenu[]=
     {2,"M_SCRNSZ",	M_SizeDisplay,'s'},
     {-1,"",0,'\0'},
     {2,"M_MSENS",	M_ChangeSensitivity,'m'},
+    {-1,"",0,'\0'},
+    {2,"",		M_ChangeFOV,'f'},	// [CDVK] FOV
     {-1,"",0,'\0'},
     {1,"M_SVOL",	M_Sound,'s'}
 };
@@ -961,6 +966,8 @@ static const char *msgNames[2] = {"M_MSGOFF","M_MSGON"};
 
 void M_DrawOptions(void)
 {
+    char		fovvalue[8];	// [CDVK] FOV
+
     V_DrawPatchDirect(108, 15, W_CacheLumpName(DEH_String("M_OPTTTL"),
                                                PU_CACHE));
 	
@@ -977,6 +984,16 @@ void M_DrawOptions(void)
 
     M_DrawThermo(OptionsDef.x,OptionsDef.y+LINEHEIGHT*(scrnsize+1),
 		 9,screenSize);
+
+    // [CDVK] FOV: no M_FOV patch ships with the game WADs, so the
+    // label and value are drawn with the small font; thermo on the
+    // empty row below, matching SCREEN SIZE / MOUSE SENS.
+    M_WriteText(OptionsDef.x, OptionsDef.y+LINEHEIGHT*fovitem+4, "FOV");
+    M_snprintf(fovvalue, sizeof(fovvalue), "%d", fov);
+    M_WriteText(OptionsDef.x + 175, OptionsDef.y+LINEHEIGHT*fovitem+4,
+                fovvalue);
+    M_DrawThermo(OptionsDef.x,OptionsDef.y+LINEHEIGHT*(fovitem+1),
+		 11,(fov-FOV_MIN)/5);
 }
 
 void M_Options(int choice)
@@ -1152,6 +1169,26 @@ void M_ChangeSensitivity(int choice)
 	    mouseSensitivity++;
 	break;
     }
+}
+
+//
+// [CDVK] FOV slider
+//
+void M_ChangeFOV(int choice)
+{
+    switch(choice)
+    {
+      case 0:
+	if (fov > FOV_MIN)
+	    fov--;
+	break;
+      case 1:
+	if (fov < FOV_MAX)
+	    fov++;
+	break;
+    }
+
+    R_SetViewSize (screenblocks, detailLevel);
 }
 
 

@@ -677,6 +677,13 @@ extern int maxplayers;
 
 extern int mouseSensitivity;
 
+// [CDVK] Field of view (horizontal, degrees).
+// FOV_MIN..FOV_MAX; FOV_DEFAULT gives vanilla behavior.
+#define FOV_MIN     60
+#define FOV_MAX     110
+#define FOV_DEFAULT 90
+extern int fov;
+
 extern boolean precache;        // if true, load all graphics at level load
 
 extern byte *screen;            // off screen work buffer, from V_video.c

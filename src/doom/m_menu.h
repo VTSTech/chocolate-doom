@@ -55,6 +55,13 @@ void M_StartControlPanel (void);
 extern int detailLevel;
 extern int screenblocks;
 
+// [CDVK] Field of view (horizontal, degrees).
+// FOV_MIN..FOV_MAX; FOV_DEFAULT gives vanilla behavior.
+#define FOV_MIN     60
+#define FOV_MAX     110
+#define FOV_DEFAULT 90
+extern int fov;
+
 extern boolean inhelpscreens;
 extern int showMessages;
 

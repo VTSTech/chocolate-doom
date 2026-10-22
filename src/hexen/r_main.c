@@ -33,6 +33,9 @@ int centerx, centery;
 fixed_t centerxfrac, centeryfrac;
 fixed_t projection;
 
+// [CDVK] FOV: user field of view in degrees (horizontal).
+int fov = FOV_DEFAULT;
+
 int framecount;                 // just for profiling purposes
 
 int sscount, linecount, loopcount;
@@ -423,9 +426,32 @@ void R_InitTextureMapping(void)
 // use tangent table to generate viewangletox
 // viewangletox will give the next greatest x after the view angle
 //
+    // [CDVK] FOV: sanitize the value loaded from the config file (the
+    // menu handler never produces out-of-range values).
+    if (fov < FOV_MIN || fov > FOV_MAX)
+    {
+        fov = FOV_DEFAULT;
+    }
+
     // calc focallength so FIELDOFVIEW angles covers SCREENWIDTH
-    focallength =
-        FixedDiv(centerxfrac, finetangent[FINEANGLES / 4 + FIELDOFVIEW / 2]);
+    // [CDVK] FOV: at the default FOV keep the original expression and
+    // projection untouched (bit-identical vanilla behavior).  Otherwise
+    // let fine angles matching the user's fov span SCREENWIDTH, and
+    // move the sprite projection with it (vanilla keeps projection at
+    // centerxfrac, which is only correct for 90 degrees).
+    if (fov == FOV_DEFAULT)
+    {
+        focallength =
+            FixedDiv(centerxfrac, finetangent[FINEANGLES / 4 + FIELDOFVIEW / 2]);
+    }
+    else
+    {
+        int fovfine = fov * FIELDOFVIEW / 90 / 2;
+
+        focallength =
+            FixedDiv(centerxfrac, finetangent[FINEANGLES / 4 + fovfine]);
+        projection = focallength;
+    }
 
     for (i = 0; i < FINEANGLES / 2; i++)
     {
@@ -596,6 +622,16 @@ void R_ExecuteSetViewSize(void)
 //
     pspritescale = FRACUNIT * viewwidth / SCREENWIDTH;
     pspriteiscale = FRACUNIT * SCREENWIDTH / viewwidth;
+
+    // [CDVK] FOV: scale the weapon sprite with the projection zoom
+    // factor so it keeps its size relative to the world.
+    if (projection != centerxfrac)
+    {
+        fixed_t fovscale = FixedDiv(projection, centerxfrac);
+
+        pspritescale = FixedMul(pspritescale, fovscale);
+        pspriteiscale = FixedDiv(pspriteiscale, fovscale);
+    }
 
 //
 // thing clipping

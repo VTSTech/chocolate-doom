@@ -688,6 +688,20 @@ void R_DrawPSprite (pspdef_t* psp)
     vis->x1 = x1 < 0 ? 0 : x1;
     vis->x2 = x2 >= viewwidth ? viewwidth-1 : x2;	
     vis->scale = pspritescale<<detailshift;
+
+    // [CDVK] FOV: the weapon shrinks with the projection; shift
+    // texturemid so the texture row that sits at the bottom of the
+    // view stays there (no gap above the status bar).
+    if (projection != centerxfrac)
+    {
+	fixed_t		fovscale = FixedDiv (projection, centerxfrac);
+	fixed_t		basescale = (FRACUNIT*viewwidth/SCREENWIDTH)<<detailshift;
+	fixed_t		rowoff;
+
+	rowoff = FixedDiv ((viewheight - centery)<<FRACBITS, basescale);
+	vis->texturemid += FixedMul (rowoff,
+				     FRACUNIT - FixedDiv (FRACUNIT, fovscale));
+    }
     
     if (flip)
     {

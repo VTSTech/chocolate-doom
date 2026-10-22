@@ -189,6 +189,28 @@ is widened about 11% relative to square pixels (how the console ports
 fill widescreen sets). True widescreen — more rendered columns, wider
 FOV — would mean engine-side renderer changes; see Known limitations.
 
+## Field of view (FOV)
+
+The Options menu of each game has a FOV slider (60-110 degrees,
+default 90 = vanilla). The setting lives entirely in the software
+renderer's projection math (`R_InitTextureMapping`), so it behaves
+identically on the classic renderer and the Vulkan shader path - the
+frame feed is just scaled afterwards. At 90 degrees the code paths
+are bit-identical to vanilla; values outside 60-110 found in a
+config file are reset to 90 on the next view-size rebuild.
+
+Notes:
+
+- Horizontal and vertical field scale together (a plain zoom out or
+  in); walls and sprites stay on a consistent projection, and the
+  weapon sprite scales with the same factor while staying anchored
+  to the bottom of the view.
+- The 16:9 / 16:10 aspect modes (F11) stretch the finished frame;
+  they do not add field of view. The slider measures the FOV of the
+  internal 320-wide 4:3 frame.
+- Saved as `fov` in each game's config file; purely visual, so
+  demos and network games are unaffected.
+
 ## Shader base resolution (double / triple / quadruple)
 
 DevilutionX's libslang-vk integration exposes two independent knobs: the

@@ -10,6 +10,14 @@ version `3.0.0`).
 
 ## [Unreleased]
 
+### Added
+- In-game field-of-view slider in the Options menu of all four games
+  (60-110 degrees, default 90 = vanilla).  The weapon sprite scales
+  with the projection and stays anchored to the bottom of the view;
+  at 90 degrees the code paths are bit-identical to vanilla.  Saved
+  as `fov` in the config file; purely a rendering change, so demos
+  and network games are unaffected.
+
 ### Fixed
 - The upstream "Continuous Integration" workflow (autotools) has been
   red since the gpu-scaler.log batch: `i_log.c` and `i_vk_cache.c`

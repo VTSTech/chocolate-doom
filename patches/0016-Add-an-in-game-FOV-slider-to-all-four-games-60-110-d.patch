@@ -1,0 +1,947 @@
+From 8aa04138cc4aa264174a4955a01ec2953fc6cab0 Mon Sep 17 00:00:00 2001
+From: Nigel Todman <veritas@vts-tech.org>
+Date: Thu, 22 Oct 2026 03:21:31 +0000
+Subject: [PATCH] Add an in-game FOV slider to all four games (60-110 degrees)
+
+Options menu of each game gains a FIELD OF VIEW slider, default 90
+(vanilla). The setting lives entirely in the software renderer's
+projection math, so it behaves identically on the classic renderer
+and the Vulkan shader path:
+
+- R_InitTextureMapping: at the default FOV the original expression
+  and projection stay untouched (bit-identical vanilla behavior).
+  Otherwise fine angles matching the user's fov span SCREENWIDTH
+  and the sprite projection (walls already follow focallength)
+  moves with it; out-of-range config values reset to 90.
+- R_ExecuteSetViewSize: the weapon sprite scales with the same
+  zoom factor so it keeps its size relative to the world.
+- R_DrawPSprite: the weapon's texturemid is shifted so the texture
+  row at the bottom of the view stays there (no gap above the
+  status bar when the FOV widens).
+- Menus: doom/strife draw the label and value with the small font
+  (no M_FOV patch ships with the WADs) plus a thermometer slider;
+  heretic/hexen use a text label, MN_DrTextB value and DrawSlider.
+- Saved as 'fov' in the config file (range 60-110); purely a
+  rendering change - demos, netgames and statdump output are
+  unaffected.
+
+Verified: 246/246 logic checks against the real finetangent table
+(fov=90 bit-identical; 60-110 span correct to <0.5 deg; weapon
+bottom-anchor invariant exact); quickcheck all demos byte-identical;
+rendered timedemo runs at fov 60/90/110/garbage-999 produce identical
+statistics (instrumented run confirms the non-default projection path
+executes: 0.700 / 1.732 zoom factors at 110 / 60 degrees).
+---
+ CHANGELOG.md           |  8 ++++++++
+ README-VK.md           | 22 ++++++++++++++++++++++
+ src/doom/d_main.c      |  1 +
+ src/doom/m_menu.c      | 37 +++++++++++++++++++++++++++++++++++++
+ src/doom/m_menu.h      |  7 +++++++
+ src/doom/r_main.c      | 39 +++++++++++++++++++++++++++++++++++++--
+ src/doom/r_things.c    | 14 ++++++++++++++
+ src/heretic/d_main.c   |  1 +
+ src/heretic/doomdef.h  |  7 +++++++
+ src/heretic/mn_menu.c  | 35 ++++++++++++++++++++++++++++++++++-
+ src/heretic/r_main.c   | 40 ++++++++++++++++++++++++++++++++++++++--
+ src/heretic/r_things.c | 16 ++++++++++++++++
+ src/hexen/h2_main.c    |  1 +
+ src/hexen/h2def.h      |  7 +++++++
+ src/hexen/mn_menu.c    | 34 +++++++++++++++++++++++++++++++++-
+ src/hexen/r_main.c     | 40 ++++++++++++++++++++++++++++++++++++++--
+ src/hexen/r_things.c   | 16 ++++++++++++++++
+ src/m_config.c         | 11 +++++++++++
+ src/strife/d_main.c    |  1 +
+ src/strife/doomdef.h   |  7 +++++++
+ src/strife/m_menu.c    | 35 +++++++++++++++++++++++++++++++++++
+ src/strife/r_main.c    | 39 +++++++++++++++++++++++++++++++++++++--
+ src/strife/r_things.c  | 14 ++++++++++++++
+ 23 files changed, 422 insertions(+), 10 deletions(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 5154945a..7ee38c7c 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -10,6 +10,14 @@ version `3.0.0`).
+ 
+ ## [Unreleased]
+ 
++### Added
++- In-game field-of-view slider in the Options menu of all four games
++  (60-110 degrees, default 90 = vanilla).  The weapon sprite scales
++  with the projection and stays anchored to the bottom of the view;
++  at 90 degrees the code paths are bit-identical to vanilla.  Saved
++  as `fov` in the config file; purely a rendering change, so demos
++  and network games are unaffected.
++
+ ### Fixed
+ - The upstream "Continuous Integration" workflow (autotools) has been
+   red since the gpu-scaler.log batch: `i_log.c` and `i_vk_cache.c`
+diff --git a/README-VK.md b/README-VK.md
+index 166f3673..550f1ab4 100644
+--- a/README-VK.md
++++ b/README-VK.md
+@@ -189,6 +189,28 @@ is widened about 11% relative to square pixels (how the console ports
+ fill widescreen sets). True widescreen — more rendered columns, wider
+ FOV — would mean engine-side renderer changes; see Known limitations.
+ 
++## Field of view (FOV)
++
++The Options menu of each game has a FOV slider (60-110 degrees,
++default 90 = vanilla). The setting lives entirely in the software
++renderer's projection math (`R_InitTextureMapping`), so it behaves
++identically on the classic renderer and the Vulkan shader path - the
++frame feed is just scaled afterwards. At 90 degrees the code paths
++are bit-identical to vanilla; values outside 60-110 found in a
++config file are reset to 90 on the next view-size rebuild.
++
++Notes:
++
++- Horizontal and vertical field scale together (a plain zoom out or
++  in); walls and sprites stay on a consistent projection, and the
++  weapon sprite scales with the same factor while staying anchored
++  to the bottom of the view.
++- The 16:9 / 16:10 aspect modes (F11) stretch the finished frame;
++  they do not add field of view. The slider measures the FOV of the
++  internal 320-wide 4:3 frame.
++- Saved as `fov` in each game's config file; purely visual, so
++  demos and network games are unaffected.
++
+ ## Shader base resolution (double / triple / quadruple)
+ 
+ DevilutionX's libslang-vk integration exposes two independent knobs: the
+diff --git a/src/doom/d_main.c b/src/doom/d_main.c
+index 06aa0ff4..7e09d3c6 100644
+--- a/src/doom/d_main.c
++++ b/src/doom/d_main.c
+@@ -357,6 +357,7 @@ void D_BindVariables(void)
+     M_BindIntVariable("music_volume",           &musicVolume);
+     M_BindIntVariable("show_messages",          &showMessages);
+     M_BindIntVariable("screenblocks",           &screenblocks);
++    M_BindIntVariable("fov",                    &fov);
+     M_BindIntVariable("detaillevel",            &detailLevel);
+     M_BindIntVariable("snd_channels",           &snd_channels);
+     M_BindIntVariable("vanilla_savegame_limit", &vanilla_savegame_limit);
+diff --git a/src/doom/m_menu.c b/src/doom/m_menu.c
+index 71b47cbf..222b7d79 100644
+--- a/src/doom/m_menu.c
++++ b/src/doom/m_menu.c
+@@ -184,6 +184,7 @@ static void M_QuitDOOM(int choice);
+ 
+ static void M_ChangeMessages(int choice);
+ static void M_ChangeSensitivity(int choice);
++static void M_ChangeFOV(int choice);		// [CDVK] FOV
+ static void M_SfxVol(int choice);
+ static void M_MusicVol(int choice);
+ static void M_ChangeDetail(int choice);
+@@ -331,6 +332,8 @@ enum
+     option_empty1,
+     mousesens,
+     option_empty2,
++    fovitem,		// [CDVK] FOV
++    option_empty3,
+     soundvol,
+     opt_end
+ } options_e;
+@@ -344,6 +347,8 @@ menuitem_t OptionsMenu[]=
+     {-1,"",0,'\0'},
+     {2,"M_MSENS",	M_ChangeSensitivity,'m'},
+     {-1,"",0,'\0'},
++    {2,"",		M_ChangeFOV,'f'},	// [CDVK] FOV
++    {-1,"",0,'\0'},
+     {1,"M_SVOL",	M_Sound,'s'}
+ };
+ 
+@@ -961,6 +966,8 @@ static const char *msgNames[2] = {"M_MSGOFF","M_MSGON"};
+ 
+ void M_DrawOptions(void)
+ {
++    char		fovvalue[8];	// [CDVK] FOV
++
+     V_DrawPatchDirect(108, 15, W_CacheLumpName(DEH_String("M_OPTTTL"),
+                                                PU_CACHE));
+ 	
+@@ -977,6 +984,16 @@ void M_DrawOptions(void)
+ 
+     M_DrawThermo(OptionsDef.x,OptionsDef.y+LINEHEIGHT*(scrnsize+1),
+ 		 9,screenSize);
++
++    // [CDVK] FOV: no M_FOV patch ships with the game WADs, so the
++    // label and value are drawn with the small font; thermo on the
++    // empty row below, matching SCREEN SIZE / MOUSE SENS.
++    M_WriteText(OptionsDef.x, OptionsDef.y+LINEHEIGHT*fovitem+4, "FOV");
++    M_snprintf(fovvalue, sizeof(fovvalue), "%d", fov);
++    M_WriteText(OptionsDef.x + 175, OptionsDef.y+LINEHEIGHT*fovitem+4,
++                fovvalue);
++    M_DrawThermo(OptionsDef.x,OptionsDef.y+LINEHEIGHT*(fovitem+1),
++		 11,(fov-FOV_MIN)/5);
+ }
+ 
+ void M_Options(int choice)
+@@ -1154,6 +1171,26 @@ void M_ChangeSensitivity(int choice)
+     }
+ }
+ 
++//
++// [CDVK] FOV slider
++//
++void M_ChangeFOV(int choice)
++{
++    switch(choice)
++    {
++      case 0:
++	if (fov > FOV_MIN)
++	    fov--;
++	break;
++      case 1:
++	if (fov < FOV_MAX)
++	    fov++;
++	break;
++    }
++
++    R_SetViewSize (screenblocks, detailLevel);
++}
++
+ 
+ 
+ 
+diff --git a/src/doom/m_menu.h b/src/doom/m_menu.h
+index 2c7867f1..9790f2fe 100644
+--- a/src/doom/m_menu.h
++++ b/src/doom/m_menu.h
+@@ -55,6 +55,13 @@ void M_StartControlPanel (void);
+ extern int detailLevel;
+ extern int screenblocks;
+ 
++// [CDVK] Field of view (horizontal, degrees).
++// FOV_MIN..FOV_MAX; FOV_DEFAULT gives vanilla behavior.
++#define FOV_MIN     60
++#define FOV_MAX     110
++#define FOV_DEFAULT 90
++extern int fov;
++
+ extern boolean inhelpscreens;
+ extern int showMessages;
+ 
+diff --git a/src/doom/r_main.c b/src/doom/r_main.c
+index 970bd19b..4988867d 100644
+--- a/src/doom/r_main.c
++++ b/src/doom/r_main.c
+@@ -59,6 +59,9 @@ fixed_t			centerxfrac;
+ fixed_t			centeryfrac;
+ fixed_t			projection;
+ 
++// [CDVK] FOV: user field of view in degrees (horizontal).
++int			fov = FOV_DEFAULT;
++
+ // just for profiling purposes
+ int			framecount;	
+ 
+@@ -547,10 +550,32 @@ void R_InitTextureMapping (void)
+     //  viewangletox will give the next greatest x
+     //  after the view angle.
+     //
++    // [CDVK] FOV: sanitize the value loaded from the config file (the
++    // menu handler never produces out-of-range values).
++    if (fov < FOV_MIN || fov > FOV_MAX)
++	fov = FOV_DEFAULT;
++
+     // Calc focallength
+     //  so FIELDOFVIEW angles covers SCREENWIDTH.
+-    focallength = FixedDiv (centerxfrac,
+-			    finetangent[FINEANGLES/4+FIELDOFVIEW/2] );
++    // [CDVK] FOV: at the default FOV keep the original expression and
++    // projection untouched (bit-identical vanilla behavior).  Otherwise
++    // let fine angles matching the user's fov span SCREENWIDTH, and
++    // move the sprite projection with it (vanilla keeps projection at
++    // centerxfrac, which is only correct for 90 degrees).
++    if (fov == FOV_DEFAULT)
++    {
++	focallength = FixedDiv (centerxfrac,
++				finetangent[FINEANGLES/4+FIELDOFVIEW/2] );
++    }
++    else
++    {
++	int		fovfine;
++
++	fovfine = fov*FIELDOFVIEW/90/2;
++	focallength = FixedDiv (centerxfrac,
++				finetangent[FINEANGLES/4+fovfine] );
++	projection = focallength;
++    }
+ 	
+     for (i=0 ; i<FINEANGLES/2 ; i++)
+     {
+@@ -716,6 +741,16 @@ void R_ExecuteSetViewSize (void)
+     // psprite scales
+     pspritescale = FRACUNIT*viewwidth/SCREENWIDTH;
+     pspriteiscale = FRACUNIT*SCREENWIDTH/viewwidth;
++
++    // [CDVK] FOV: scale the weapon sprite with the projection zoom
++    // factor so it keeps its size relative to the world.
++    if (projection != centerxfrac)
++    {
++	fixed_t		fovscale = FixedDiv (projection, centerxfrac);
++
++	pspritescale = FixedMul (pspritescale, fovscale);
++	pspriteiscale = FixedDiv (pspriteiscale, fovscale);
++    }
+     
+     // thing clipping
+     for (i=0 ; i<viewwidth ; i++)
+diff --git a/src/doom/r_things.c b/src/doom/r_things.c
+index ca20a47b..e257eaaa 100644
+--- a/src/doom/r_things.c
++++ b/src/doom/r_things.c
+@@ -688,6 +688,20 @@ void R_DrawPSprite (pspdef_t* psp)
+     vis->x1 = x1 < 0 ? 0 : x1;
+     vis->x2 = x2 >= viewwidth ? viewwidth-1 : x2;	
+     vis->scale = pspritescale<<detailshift;
++
++    // [CDVK] FOV: the weapon shrinks with the projection; shift
++    // texturemid so the texture row that sits at the bottom of the
++    // view stays there (no gap above the status bar).
++    if (projection != centerxfrac)
++    {
++	fixed_t		fovscale = FixedDiv (projection, centerxfrac);
++	fixed_t		basescale = (FRACUNIT*viewwidth/SCREENWIDTH)<<detailshift;
++	fixed_t		rowoff;
++
++	rowoff = FixedDiv ((viewheight - centery)<<FRACBITS, basescale);
++	vis->texturemid += FixedMul (rowoff,
++				     FRACUNIT - FixedDiv (FRACUNIT, fovscale));
++    }
+     
+     if (flip)
+     {
+diff --git a/src/heretic/d_main.c b/src/heretic/d_main.c
+index 9090df83..6018948a 100644
+--- a/src/heretic/d_main.c
++++ b/src/heretic/d_main.c
+@@ -679,6 +679,7 @@ void D_BindVariables(void)
+     M_BindIntVariable("sfx_volume",             &snd_MaxVolume);
+     M_BindIntVariable("music_volume",           &snd_MusicVolume);
+     M_BindIntVariable("screenblocks",           &screenblocks);
++    M_BindIntVariable("fov",                    &fov);
+     M_BindIntVariable("snd_channels",           &snd_Channels);
+     M_BindIntVariable("vanilla_savegame_limit", &vanilla_savegame_limit);
+     M_BindIntVariable("vanilla_demo_limit",     &vanilla_demo_limit);
+diff --git a/src/heretic/doomdef.h b/src/heretic/doomdef.h
+index 8d5e13e5..baf774d8 100644
+--- a/src/heretic/doomdef.h
++++ b/src/heretic/doomdef.h
+@@ -564,6 +564,13 @@ extern boolean playerstartsingame[MAXPLAYERS];
+ 
+ extern int mouseSensitivity;
+ 
++// [CDVK] Field of view (horizontal, degrees).
++// FOV_MIN..FOV_MAX; FOV_DEFAULT gives vanilla behavior.
++#define FOV_MIN     60
++#define FOV_MAX     110
++#define FOV_DEFAULT 90
++extern int fov;
++
+ extern boolean precache;        // if true, load all graphics at level load
+ 
+ extern boolean singledemo;      // quit after playing a demo from cmdline
+diff --git a/src/heretic/mn_menu.c b/src/heretic/mn_menu.c
+index 95cb62ce..968dbfce 100644
+--- a/src/heretic/mn_menu.c
++++ b/src/heretic/mn_menu.c
+@@ -101,6 +101,7 @@ static boolean SCMouseSensi(int option);
+ static boolean SCSfxVolume(int option);
+ static boolean SCMusicVolume(int option);
+ static boolean SCScreenSize(int option);
++static boolean SCFov(int option);      // [CDVK] FOV
+ static boolean SCLoadGame(int option);
+ static boolean SCSaveGame(int option);
+ static boolean SCMessages(int option);
+@@ -251,13 +252,15 @@ static MenuItem_t OptionsItems[] = {
+     {ITT_EFUNC, "MESSAGES : ", SCMessages, 0, MENU_NONE},
+     {ITT_LRFUNC, "MOUSE SENSITIVITY", SCMouseSensi, 0, MENU_NONE},
+     {ITT_EMPTY, NULL, NULL, 0, MENU_NONE},
++    {ITT_LRFUNC, "FOV", SCFov, 0, MENU_NONE},      // [CDVK] FOV
++    {ITT_EMPTY, NULL, NULL, 0, MENU_NONE},
+     {ITT_SETMENU, "MORE...", NULL, 0, MENU_OPTIONS2}
+ };
+ 
+ static Menu_t OptionsMenu = {
+     88, 30,
+     DrawOptionsMenu,
+-    5, OptionsItems,
++    7, OptionsItems,
+     0,
+     MENU_MAIN
+ };
+@@ -693,6 +696,8 @@ static void DrawFileSlots(Menu_t * menu)
+ 
+ static void DrawOptionsMenu(void)
+ {
++    char fovvalue[8];           // [CDVK] FOV
++
+     if (messageson)
+     {
+         MN_DrTextB(DEH_String("ON"), 196, 50);
+@@ -702,6 +707,11 @@ static void DrawOptionsMenu(void)
+         MN_DrTextB(DEH_String("OFF"), 196, 50);
+     }
+     DrawSlider(&OptionsMenu, 3, 10, mouseSensitivity);
++    // [CDVK] FOV: value beside the label; slider on the empty row
++    // below it (same layout as MOUSE SENSITIVITY).
++    M_snprintf(fovvalue, sizeof(fovvalue), "%d", fov);
++    MN_DrTextB(fovvalue, 196, OptionsMenu.y + 4 * ITEM_HEIGHT);
++    DrawSlider(&OptionsMenu, 5, 11, (fov - FOV_MIN) / 5);
+ }
+ 
+ //---------------------------------------------------------------------------
+@@ -1051,6 +1061,29 @@ static boolean SCScreenSize(int option)
+     return true;
+ }
+ 
++//---------------------------------------------------------------------------
++//
++// PROC SCFov  [CDVK] FOV
++//
++//---------------------------------------------------------------------------
++
++static boolean SCFov(int option)
++{
++    if (option == RIGHT_DIR)
++    {
++        if (fov < FOV_MAX)
++        {
++            fov++;
++        }
++    }
++    else if (fov > FOV_MIN)
++    {
++        fov--;
++    }
++    R_SetViewSize(screenblocks, detailLevel);
++    return true;
++}
++
+ //---------------------------------------------------------------------------
+ //
+ // PROC SCInfo
+diff --git a/src/heretic/r_main.c b/src/heretic/r_main.c
+index 1ff6a68d..103787e7 100644
+--- a/src/heretic/r_main.c
++++ b/src/heretic/r_main.c
+@@ -34,6 +34,9 @@ int centerx, centery;
+ fixed_t centerxfrac, centeryfrac;
+ fixed_t projection;
+ 
++// [CDVK] FOV: user field of view in degrees (horizontal).
++int fov = FOV_DEFAULT;
++
+ int framecount;                 // just for profiling purposes
+ 
+ int sscount, linecount, loopcount;
+@@ -421,9 +424,32 @@ void R_InitTextureMapping(void)
+ // use tangent table to generate viewangletox
+ // viewangletox will give the next greatest x after the view angle
+ //
++    // [CDVK] FOV: sanitize the value loaded from the config file (the
++    // menu handler never produces out-of-range values).
++    if (fov < FOV_MIN || fov > FOV_MAX)
++    {
++        fov = FOV_DEFAULT;
++    }
++
+     // calc focallength so FIELDOFVIEW angles covers SCREENWIDTH
+-    focallength =
+-        FixedDiv(centerxfrac, finetangent[FINEANGLES / 4 + FIELDOFVIEW / 2]);
++    // [CDVK] FOV: at the default FOV keep the original expression and
++    // projection untouched (bit-identical vanilla behavior).  Otherwise
++    // let fine angles matching the user's fov span SCREENWIDTH, and
++    // move the sprite projection with it (vanilla keeps projection at
++    // centerxfrac, which is only correct for 90 degrees).
++    if (fov == FOV_DEFAULT)
++    {
++        focallength =
++            FixedDiv(centerxfrac, finetangent[FINEANGLES / 4 + FIELDOFVIEW / 2]);
++    }
++    else
++    {
++        int fovfine = fov * FIELDOFVIEW / 90 / 2;
++
++        focallength =
++            FixedDiv(centerxfrac, finetangent[FINEANGLES / 4 + fovfine]);
++        projection = focallength;
++    }
+ 
+     for (i = 0; i < FINEANGLES / 2; i++)
+     {
+@@ -595,6 +621,16 @@ void R_ExecuteSetViewSize(void)
+     pspritescale = FRACUNIT * viewwidth / SCREENWIDTH;
+     pspriteiscale = FRACUNIT * SCREENWIDTH / viewwidth;
+ 
++    // [CDVK] FOV: scale the weapon sprite with the projection zoom
++    // factor so it keeps its size relative to the world.
++    if (projection != centerxfrac)
++    {
++        fixed_t fovscale = FixedDiv(projection, centerxfrac);
++
++        pspritescale = FixedMul(pspritescale, fovscale);
++        pspriteiscale = FixedDiv(pspriteiscale, fovscale);
++    }
++
+ //
+ // thing clipping
+ //
+diff --git a/src/heretic/r_things.c b/src/heretic/r_things.c
+index 88e35b9b..b80cc170 100644
+--- a/src/heretic/r_things.c
++++ b/src/heretic/r_things.c
+@@ -724,6 +724,22 @@ void R_DrawPSprite(pspdef_t * psp)
+     vis->x1 = x1 < 0 ? 0 : x1;
+     vis->x2 = x2 >= viewwidth ? viewwidth - 1 : x2;
+     vis->scale = pspritescale << detailshift;
++
++    // [CDVK] FOV: the weapon shrinks with the projection; shift
++    // texturemid so the texture row that sits at the bottom of the
++    // view stays there (no gap above the status bar).
++    if (projection != centerxfrac)
++    {
++        fixed_t fovscale = FixedDiv(projection, centerxfrac);
++        fixed_t basescale = (FRACUNIT * viewwidth / SCREENWIDTH)
++                            << detailshift;
++        fixed_t rowoff = FixedDiv((viewheight - centery) << FRACBITS,
++                                  basescale);
++
++        vis->texturemid += FixedMul(rowoff,
++                                    FRACUNIT - FixedDiv(FRACUNIT,
++                                                        fovscale));
++    }
+     if (flip)
+     {
+         vis->xiscale = -pspriteiscale;
+diff --git a/src/hexen/h2_main.c b/src/hexen/h2_main.c
+index 0a7bff85..07accd61 100644
+--- a/src/hexen/h2_main.c
++++ b/src/hexen/h2_main.c
+@@ -174,6 +174,7 @@ void D_BindVariables(void)
+     M_BindIntVariable("music_volume",           &snd_MusicVolume);
+     M_BindIntVariable("messageson",             &messageson);
+     M_BindIntVariable("screenblocks",           &screenblocks);
++    M_BindIntVariable("fov",                    &fov);
+     M_BindIntVariable("snd_channels",           &snd_Channels);
+     M_BindIntVariable("vanilla_savegame_limit", &vanilla_savegame_limit);
+     M_BindIntVariable("vanilla_demo_limit",     &vanilla_demo_limit);
+diff --git a/src/hexen/h2def.h b/src/hexen/h2def.h
+index 2bfdfb51..2a45e0a6 100644
+--- a/src/hexen/h2def.h
++++ b/src/hexen/h2def.h
+@@ -677,6 +677,13 @@ extern int maxplayers;
+ 
+ extern int mouseSensitivity;
+ 
++// [CDVK] Field of view (horizontal, degrees).
++// FOV_MIN..FOV_MAX; FOV_DEFAULT gives vanilla behavior.
++#define FOV_MIN     60
++#define FOV_MAX     110
++#define FOV_DEFAULT 90
++extern int fov;
++
+ extern boolean precache;        // if true, load all graphics at level load
+ 
+ extern byte *screen;            // off screen work buffer, from V_video.c
+diff --git a/src/hexen/mn_menu.c b/src/hexen/mn_menu.c
+index 57be51c9..e56f4863 100644
+--- a/src/hexen/mn_menu.c
++++ b/src/hexen/mn_menu.c
+@@ -104,6 +104,7 @@ static void SCMouseSensi(int option);
+ static void SCSfxVolume(int option);
+ static void SCMusicVolume(int option);
+ static void SCScreenSize(int option);
++static void SCFov(int option);         // [CDVK] FOV
+ static boolean SCNetCheck(int option);
+ static void SCNetCheck2(int option);
+ static void SCLoadGame(int option);
+@@ -257,13 +258,15 @@ static MenuItem_t OptionsItems[] = {
+     {ITT_EFUNC, "MESSAGES : ", SCMessages, 0, MENU_NONE},
+     {ITT_LRFUNC, "MOUSE SENSITIVITY", SCMouseSensi, 0, MENU_NONE},
+     {ITT_EMPTY, NULL, NULL, 0, MENU_NONE},
++    {ITT_LRFUNC, "FOV", SCFov, 0, MENU_NONE},      // [CDVK] FOV
++    {ITT_EMPTY, NULL, NULL, 0, MENU_NONE},
+     {ITT_SETMENU, "MORE...", NULL, 0, MENU_OPTIONS2}
+ };
+ 
+ static Menu_t OptionsMenu = {
+     88, 30,
+     DrawOptionsMenu,
+-    5, OptionsItems,
++    7, OptionsItems,
+     0,
+     MENU_MAIN
+ };
+@@ -762,6 +765,8 @@ static void DrawFileSlots(Menu_t * menu)
+ 
+ static void DrawOptionsMenu(void)
+ {
++    char fovvalue[8];           // [CDVK] FOV
++
+     if (messageson)
+     {
+         MN_DrTextB("ON", 196, 50);
+@@ -771,6 +776,11 @@ static void DrawOptionsMenu(void)
+         MN_DrTextB("OFF", 196, 50);
+     }
+     DrawSlider(&OptionsMenu, 3, 10, mouseSensitivity);
++    // [CDVK] FOV: value beside the label; slider on the empty row
++    // below it (same layout as MOUSE SENSITIVITY).
++    M_snprintf(fovvalue, sizeof(fovvalue), "%d", fov);
++    MN_DrTextB(fovvalue, 196, OptionsMenu.y + 4 * ITEM_HEIGHT);
++    DrawSlider(&OptionsMenu, 5, 11, (fov - FOV_MIN) / 5);
+ }
+ 
+ //---------------------------------------------------------------------------
+@@ -1158,6 +1168,28 @@ static void SCScreenSize(int option)
+     R_SetViewSize(screenblocks, detailLevel);
+ }
+ 
++//---------------------------------------------------------------------------
++//
++// PROC SCFov  [CDVK] FOV
++//
++//---------------------------------------------------------------------------
++
++static void SCFov(int option)
++{
++    if (option == RIGHT_DIR)
++    {
++        if (fov < FOV_MAX)
++        {
++            fov++;
++        }
++    }
++    else if (fov > FOV_MIN)
++    {
++        fov--;
++    }
++    R_SetViewSize(screenblocks, detailLevel);
++}
++
+ //---------------------------------------------------------------------------
+ //
+ // PROC SCInfo
+diff --git a/src/hexen/r_main.c b/src/hexen/r_main.c
+index 3bbb4fce..7bd74af5 100644
+--- a/src/hexen/r_main.c
++++ b/src/hexen/r_main.c
+@@ -33,6 +33,9 @@ int centerx, centery;
+ fixed_t centerxfrac, centeryfrac;
+ fixed_t projection;
+ 
++// [CDVK] FOV: user field of view in degrees (horizontal).
++int fov = FOV_DEFAULT;
++
+ int framecount;                 // just for profiling purposes
+ 
+ int sscount, linecount, loopcount;
+@@ -423,9 +426,32 @@ void R_InitTextureMapping(void)
+ // use tangent table to generate viewangletox
+ // viewangletox will give the next greatest x after the view angle
+ //
++    // [CDVK] FOV: sanitize the value loaded from the config file (the
++    // menu handler never produces out-of-range values).
++    if (fov < FOV_MIN || fov > FOV_MAX)
++    {
++        fov = FOV_DEFAULT;
++    }
++
+     // calc focallength so FIELDOFVIEW angles covers SCREENWIDTH
+-    focallength =
+-        FixedDiv(centerxfrac, finetangent[FINEANGLES / 4 + FIELDOFVIEW / 2]);
++    // [CDVK] FOV: at the default FOV keep the original expression and
++    // projection untouched (bit-identical vanilla behavior).  Otherwise
++    // let fine angles matching the user's fov span SCREENWIDTH, and
++    // move the sprite projection with it (vanilla keeps projection at
++    // centerxfrac, which is only correct for 90 degrees).
++    if (fov == FOV_DEFAULT)
++    {
++        focallength =
++            FixedDiv(centerxfrac, finetangent[FINEANGLES / 4 + FIELDOFVIEW / 2]);
++    }
++    else
++    {
++        int fovfine = fov * FIELDOFVIEW / 90 / 2;
++
++        focallength =
++            FixedDiv(centerxfrac, finetangent[FINEANGLES / 4 + fovfine]);
++        projection = focallength;
++    }
+ 
+     for (i = 0; i < FINEANGLES / 2; i++)
+     {
+@@ -597,6 +623,16 @@ void R_ExecuteSetViewSize(void)
+     pspritescale = FRACUNIT * viewwidth / SCREENWIDTH;
+     pspriteiscale = FRACUNIT * SCREENWIDTH / viewwidth;
+ 
++    // [CDVK] FOV: scale the weapon sprite with the projection zoom
++    // factor so it keeps its size relative to the world.
++    if (projection != centerxfrac)
++    {
++        fixed_t fovscale = FixedDiv(projection, centerxfrac);
++
++        pspritescale = FixedMul(pspritescale, fovscale);
++        pspriteiscale = FixedDiv(pspriteiscale, fovscale);
++    }
++
+ //
+ // thing clipping
+ //
+diff --git a/src/hexen/r_things.c b/src/hexen/r_things.c
+index e9cfeccd..c6d3eb77 100644
+--- a/src/hexen/r_things.c
++++ b/src/hexen/r_things.c
+@@ -738,6 +738,22 @@ void R_DrawPSprite(pspdef_t * psp)
+     vis->x1 = x1 < 0 ? 0 : x1;
+     vis->x2 = x2 >= viewwidth ? viewwidth - 1 : x2;
+     vis->scale = pspritescale << detailshift;
++
++    // [CDVK] FOV: the weapon shrinks with the projection; shift
++    // texturemid so the texture row that sits at the bottom of the
++    // view stays there (no gap above the status bar).
++    if (projection != centerxfrac)
++    {
++        fixed_t fovscale = FixedDiv(projection, centerxfrac);
++        fixed_t basescale = (FRACUNIT * viewwidth / SCREENWIDTH)
++                            << detailshift;
++        fixed_t rowoff = FixedDiv((viewheight - centery) << FRACBITS,
++                                  basescale);
++
++        vis->texturemid += FixedMul(rowoff,
++                                    FRACUNIT - FixedDiv(FRACUNIT,
++                                                        fovscale));
++    }
+     if (flip)
+     {
+         vis->xiscale = -pspriteiscale;
+diff --git a/src/m_config.c b/src/m_config.c
+index 2b4fcf2d..a9b2e282 100644
+--- a/src/m_config.c
++++ b/src/m_config.c
+@@ -524,6 +524,17 @@ static default_t        doom_defaults_list[] =
+ 
+     CONFIG_VARIABLE_INT(screensize),
+ 
++    //!
++    // @game doom heretic hexen strife
++    //
++    // Field of view, in degrees (horizontal).  Range 60-110.  The
++    // default of 90 matches the vanilla games; this only changes how
++    // the world is rendered (gameplay, demos and netgames are not
++    // affected).
++    //
++
++    CONFIG_VARIABLE_INT(fov),
++
+     //!
+     // @game doom
+     //
+diff --git a/src/strife/d_main.c b/src/strife/d_main.c
+index 56372b53..e2a886ad 100644
+--- a/src/strife/d_main.c
++++ b/src/strife/d_main.c
+@@ -443,6 +443,7 @@ void D_BindVariables(void)
+     // * Added nickname, comport
+ 
+     M_BindIntVariable("mouse_sensitivity",      &mouseSensitivity);
++    M_BindIntVariable("fov",                    &fov);
+     M_BindIntVariable("sfx_volume",             &sfxVolume);
+     M_BindIntVariable("music_volume",           &musicVolume);
+     M_BindIntVariable("voice_volume",           &voiceVolume); 
+diff --git a/src/strife/doomdef.h b/src/strife/doomdef.h
+index cdb64541..899c7ea0 100644
+--- a/src/strife/doomdef.h
++++ b/src/strife/doomdef.h
+@@ -27,6 +27,13 @@
+ #include "i_timer.h"
+ #include "d_mode.h"
+ 
++// [CDVK] Field of view (horizontal, degrees).
++// FOV_MIN..FOV_MAX; FOV_DEFAULT gives vanilla behavior.
++#define FOV_MIN     60
++#define FOV_MAX     110
++#define FOV_DEFAULT 90
++extern int fov;
++
+ //
+ // Global parameters/defines.
+ //
+diff --git a/src/strife/m_menu.c b/src/strife/m_menu.c
+index d277fd3c..d9addf74 100644
+--- a/src/strife/m_menu.c
++++ b/src/strife/m_menu.c
+@@ -176,6 +176,7 @@ void M_SfxVol(int choice);
+ void M_VoiceVol(int choice); // [STRIFE]
+ void M_MusicVol(int choice);
+ void M_SizeDisplay(int choice);
++void M_ChangeFOV(int choice);     // [CDVK] FOV
+ void M_StartGame(int choice);
+ void M_Sound(int choice);
+ 
+@@ -319,6 +320,8 @@ enum
+     endgame,
+     scrnsize,
+     option_empty1,
++    fovitem,                    // [CDVK] FOV
++    option_empty2,
+     soundvol,
+     opt_end
+ } options_e;
+@@ -329,6 +332,8 @@ menuitem_t OptionsMenu[]=
+     {1,"M_ENDGAM",	M_EndGame,'e'},
+     {2,"M_SCRNSZ",	M_SizeDisplay,'s'},
+     {-1,"",0,'\0'},
++    {2,"",		M_ChangeFOV,'f'},	// [CDVK] FOV
++    {-1,"",0,'\0'},
+     {1,"M_SVOL",	M_Sound,'s'}
+ };
+ 
+@@ -1124,6 +1129,8 @@ char	msgNames[2][9]		= {"M_MSGOFF","M_MSGON"};
+ 
+ void M_DrawOptions(void)
+ {
++    char                fovvalue[8];     // [CDVK] FOV
++
+     // haleyjd 08/27/10: [STRIFE] M_OPTTTL -> M_OPTION
+     V_DrawPatchDirect(108, 15, 
+                       W_CacheLumpName(DEH_String("M_OPTION"), PU_CACHE));
+@@ -1132,6 +1139,16 @@ void M_DrawOptions(void)
+ 
+     M_DrawThermo(OptionsDef.x,OptionsDef.y+LINEHEIGHT*(scrnsize+1),
+                  9,screenSize);
++
++    // [CDVK] FOV: no M_FOV patch ships with strife1.wad, so the
++    // label and value are drawn with the small font; thermo on the
++    // empty row below, matching SCREEN SIZE.
++    M_WriteText(OptionsDef.x, OptionsDef.y+LINEHEIGHT*fovitem+4, "FOV");
++    M_snprintf(fovvalue, sizeof(fovvalue), "%d", fov);
++    M_WriteText(OptionsDef.x + 175, OptionsDef.y+LINEHEIGHT*fovitem+4,
++                fovvalue);
++    M_DrawThermo(OptionsDef.x,OptionsDef.y+LINEHEIGHT*(fovitem+1),
++                 11,(fov-FOV_MIN)/5);
+ }
+ 
+ void M_Options(int choice)
+@@ -1393,6 +1410,24 @@ void M_SizeDisplay(int choice)
+     R_SetViewSize (screenblocks, detailLevel);
+ }
+ 
++// [CDVK] FOV slider
++void M_ChangeFOV(int choice)
++{
++    switch(choice)
++    {
++    case 0:
++        if (fov > FOV_MIN)
++            fov--;
++        break;
++    case 1:
++        if (fov < FOV_MAX)
++            fov++;
++        break;
++    }
++
++    R_SetViewSize (screenblocks, detailLevel);
++}
++
+ 
+ 
+ 
+diff --git a/src/strife/r_main.c b/src/strife/r_main.c
+index f940bb0d..c4c722e7 100644
+--- a/src/strife/r_main.c
++++ b/src/strife/r_main.c
+@@ -60,6 +60,9 @@ fixed_t			centerxfrac;
+ fixed_t			centeryfrac;
+ fixed_t			projection;
+ 
++// [CDVK] FOV: user field of view in degrees (horizontal).
++int			fov = FOV_DEFAULT;
++
+ // just for profiling purposes
+ int			framecount;	
+ 
+@@ -550,10 +553,32 @@ void R_InitTextureMapping (void)
+     //  viewangletox will give the next greatest x
+     //  after the view angle.
+     //
++    // [CDVK] FOV: sanitize the value loaded from the config file (the
++    // menu handler never produces out-of-range values).
++    if (fov < FOV_MIN || fov > FOV_MAX)
++	fov = FOV_DEFAULT;
++
+     // Calc focallength
+     //  so FIELDOFVIEW angles covers SCREENWIDTH.
+-    focallength = FixedDiv (centerxfrac,
+-			    finetangent[FINEANGLES/4+FIELDOFVIEW/2] );
++    // [CDVK] FOV: at the default FOV keep the original expression and
++    // projection untouched (bit-identical vanilla behavior).  Otherwise
++    // let fine angles matching the user's fov span SCREENWIDTH, and
++    // move the sprite projection with it (vanilla keeps projection at
++    // centerxfrac, which is only correct for 90 degrees).
++    if (fov == FOV_DEFAULT)
++    {
++	focallength = FixedDiv (centerxfrac,
++				finetangent[FINEANGLES/4+FIELDOFVIEW/2] );
++    }
++    else
++    {
++	int		fovfine;
++
++	fovfine = fov*FIELDOFVIEW/90/2;
++	focallength = FixedDiv (centerxfrac,
++				finetangent[FINEANGLES/4+fovfine] );
++	projection = focallength;
++    }
+ 	
+     for (i=0 ; i<FINEANGLES/2 ; i++)
+     {
+@@ -723,6 +748,16 @@ void R_ExecuteSetViewSize (void)
+     // psprite scales
+     pspritescale = FRACUNIT*viewwidth/SCREENWIDTH;
+     pspriteiscale = FRACUNIT*SCREENWIDTH/viewwidth;
++
++    // [CDVK] FOV: scale the weapon sprite with the projection zoom
++    // factor so it keeps its size relative to the world.
++    if (projection != centerxfrac)
++    {
++	fixed_t		fovscale = FixedDiv (projection, centerxfrac);
++
++	pspritescale = FixedMul (pspritescale, fovscale);
++	pspriteiscale = FixedDiv (pspriteiscale, fovscale);
++    }
+     
+     // thing clipping
+     for (i=0 ; i<viewwidth ; i++)
+diff --git a/src/strife/r_things.c b/src/strife/r_things.c
+index e49f7bc1..171e7095 100644
+--- a/src/strife/r_things.c
++++ b/src/strife/r_things.c
+@@ -770,6 +770,20 @@ void R_DrawPSprite (pspdef_t* psp)
+     vis->texturemid = ((BASEYCENTER<<FRACBITS)+FRACUNIT/2)-(psp->sy-spritetopoffset[lump])
+         + FixedMul(vis->xiscale, (centery-viewheight/2)<<FRACBITS);
+ 
++    // [CDVK] FOV: the weapon shrinks with the projection; shift
++    // texturemid so the texture row that sits at the bottom of the
++    // view stays there (no gap above the status bar).
++    if (projection != centerxfrac)
++    {
++	fixed_t		fovscale = FixedDiv (projection, centerxfrac);
++	fixed_t		basescale = (FRACUNIT*viewwidth/SCREENWIDTH)<<detailshift;
++	fixed_t		rowoff;
++
++	rowoff = FixedDiv ((viewheight - centery)<<FRACBITS, basescale);
++	vis->texturemid += FixedMul (rowoff,
++				     FRACUNIT - FixedDiv (FRACUNIT, fovscale));
++    }
++
+     if (vis->x1 > x1)
+         vis->startfrac += vis->xiscale*(vis->x1-x1);
+ 
+-- 
+2.47.3
+

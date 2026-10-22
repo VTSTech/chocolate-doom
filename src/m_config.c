@@ -525,6 +525,17 @@ static default_t        doom_defaults_list[] =
     CONFIG_VARIABLE_INT(screensize),
 
     //!
+    // @game doom heretic hexen strife
+    //
+    // Field of view, in degrees (horizontal).  Range 60-110.  The
+    // default of 90 matches the vanilla games; this only changes how
+    // the world is rendered (gameplay, demos and netgames are not
+    // affected).
+    //
+
+    CONFIG_VARIABLE_INT(fov),
+
+    //!
     // @game doom
     //
     // Screen detail.  Zero gives normal "high detail" mode, while

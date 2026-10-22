@@ -564,6 +564,13 @@ extern boolean playerstartsingame[MAXPLAYERS];
 
 extern int mouseSensitivity;
 
+// [CDVK] Field of view (horizontal, degrees).
+// FOV_MIN..FOV_MAX; FOV_DEFAULT gives vanilla behavior.
+#define FOV_MIN     60
+#define FOV_MAX     110
+#define FOV_DEFAULT 90
+extern int fov;
+
 extern boolean precache;        // if true, load all graphics at level load
 
 extern boolean singledemo;      // quit after playing a demo from cmdline

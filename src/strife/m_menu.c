@@ -176,6 +176,7 @@ void M_SfxVol(int choice);
 void M_VoiceVol(int choice); // [STRIFE]
 void M_MusicVol(int choice);
 void M_SizeDisplay(int choice);
+void M_ChangeFOV(int choice);     // [CDVK] FOV
 void M_StartGame(int choice);
 void M_Sound(int choice);
 
@@ -319,6 +320,8 @@ enum
     endgame,
     scrnsize,
     option_empty1,
+    fovitem,                    // [CDVK] FOV
+    option_empty2,
     soundvol,
     opt_end
 } options_e;
@@ -328,6 +331,8 @@ menuitem_t OptionsMenu[]=
     // haleyjd 08/28/10: [STRIFE] Removed messages, mouse sens., detail.
     {1,"M_ENDGAM",	M_EndGame,'e'},
     {2,"M_SCRNSZ",	M_SizeDisplay,'s'},
+    {-1,"",0,'\0'},
+    {2,"",		M_ChangeFOV,'f'},	// [CDVK] FOV
     {-1,"",0,'\0'},
     {1,"M_SVOL",	M_Sound,'s'}
 };
@@ -1124,6 +1129,8 @@ char	msgNames[2][9]		= {"M_MSGOFF","M_MSGON"};
 
 void M_DrawOptions(void)
 {
+    char                fovvalue[8];     // [CDVK] FOV
+
     // haleyjd 08/27/10: [STRIFE] M_OPTTTL -> M_OPTION
     V_DrawPatchDirect(108, 15, 
                       W_CacheLumpName(DEH_String("M_OPTION"), PU_CACHE));
@@ -1132,6 +1139,16 @@ void M_DrawOptions(void)
 
     M_DrawThermo(OptionsDef.x,OptionsDef.y+LINEHEIGHT*(scrnsize+1),
                  9,screenSize);
+
+    // [CDVK] FOV: no M_FOV patch ships with strife1.wad, so the
+    // label and value are drawn with the small font; thermo on the
+    // empty row below, matching SCREEN SIZE.
+    M_WriteText(OptionsDef.x, OptionsDef.y+LINEHEIGHT*fovitem+4, "FOV");
+    M_snprintf(fovvalue, sizeof(fovvalue), "%d", fov);
+    M_WriteText(OptionsDef.x + 175, OptionsDef.y+LINEHEIGHT*fovitem+4,
+                fovvalue);
+    M_DrawThermo(OptionsDef.x,OptionsDef.y+LINEHEIGHT*(fovitem+1),
+                 11,(fov-FOV_MIN)/5);
 }
 
 void M_Options(int choice)
@@ -1387,6 +1404,24 @@ void M_SizeDisplay(int choice)
             screenblocks++;
             screenSize++;
         }
+        break;
+    }
+
+    R_SetViewSize (screenblocks, detailLevel);
+}
+
+// [CDVK] FOV slider
+void M_ChangeFOV(int choice)
+{
+    switch(choice)
+    {
+    case 0:
+        if (fov > FOV_MIN)
+            fov--;
+        break;
+    case 1:
+        if (fov < FOV_MAX)
+            fov++;
         break;
     }
 

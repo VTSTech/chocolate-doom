@@ -104,6 +104,7 @@ static void SCMouseSensi(int option);
 static void SCSfxVolume(int option);
 static void SCMusicVolume(int option);
 static void SCScreenSize(int option);
+static void SCFov(int option);         // [CDVK] FOV
 static boolean SCNetCheck(int option);
 static void SCNetCheck2(int option);
 static void SCLoadGame(int option);
@@ -257,13 +258,15 @@ static MenuItem_t OptionsItems[] = {
     {ITT_EFUNC, "MESSAGES : ", SCMessages, 0, MENU_NONE},
     {ITT_LRFUNC, "MOUSE SENSITIVITY", SCMouseSensi, 0, MENU_NONE},
     {ITT_EMPTY, NULL, NULL, 0, MENU_NONE},
+    {ITT_LRFUNC, "FOV", SCFov, 0, MENU_NONE},      // [CDVK] FOV
+    {ITT_EMPTY, NULL, NULL, 0, MENU_NONE},
     {ITT_SETMENU, "MORE...", NULL, 0, MENU_OPTIONS2}
 };
 
 static Menu_t OptionsMenu = {
     88, 30,
     DrawOptionsMenu,
-    5, OptionsItems,
+    7, OptionsItems,
     0,
     MENU_MAIN
 };
@@ -762,6 +765,8 @@ static void DrawFileSlots(Menu_t * menu)
 
 static void DrawOptionsMenu(void)
 {
+    char fovvalue[8];           // [CDVK] FOV
+
     if (messageson)
     {
         MN_DrTextB("ON", 196, 50);
@@ -771,6 +776,11 @@ static void DrawOptionsMenu(void)
         MN_DrTextB("OFF", 196, 50);
     }
     DrawSlider(&OptionsMenu, 3, 10, mouseSensitivity);
+    // [CDVK] FOV: value beside the label; slider on the empty row
+    // below it (same layout as MOUSE SENSITIVITY).
+    M_snprintf(fovvalue, sizeof(fovvalue), "%d", fov);
+    MN_DrTextB(fovvalue, 196, OptionsMenu.y + 4 * ITEM_HEIGHT);
+    DrawSlider(&OptionsMenu, 5, 11, (fov - FOV_MIN) / 5);
 }
 
 //---------------------------------------------------------------------------
@@ -1154,6 +1164,28 @@ static void SCScreenSize(int option)
     else if (screenblocks > 3)
     {
         screenblocks--;
+    }
+    R_SetViewSize(screenblocks, detailLevel);
+}
+
+//---------------------------------------------------------------------------
+//
+// PROC SCFov  [CDVK] FOV
+//
+//---------------------------------------------------------------------------
+
+static void SCFov(int option)
+{
+    if (option == RIGHT_DIR)
+    {
+        if (fov < FOV_MAX)
+        {
+            fov++;
+        }
+    }
+    else if (fov > FOV_MIN)
+    {
+        fov--;
     }
     R_SetViewSize(screenblocks, detailLevel);
 }
