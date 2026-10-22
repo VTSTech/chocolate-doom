@@ -35,7 +35,6 @@
 #include "i_system.h"
 #include "i_timer.h"
 #include "i_video.h"
-#include "i_video_vk.h"   // [CDVK] I_ToggleShaders / I_VK_Active
 #include "m_misc.h"
 #include "v_video.h"
 #include "w_wad.h"
@@ -187,7 +186,7 @@ static void M_ChangeMessages(int choice);
 static void M_ChangeSensitivity(int choice);
 static void M_ChangeFOV(int choice);		// [CDVK] FOV
 static void M_Advanced(int choice);		// [CDVK] ADVANCED submenu
-static void M_ToggleShaders(int choice);	// [CDVK] SHADERS ON/OFF
+static void M_ShadersPlaceholder(int choice);	// [CDVK] SHADERS row (placeholder)
 static void M_SfxVol(int choice);
 static void M_MusicVol(int choice);
 static void M_SizeDisplay(int choice);
@@ -345,7 +344,7 @@ menuitem_t OptionsMenu[]=
 {
     {1,"",		M_Advanced,'a'},	// [CDVK] ADVANCED (was End Game)
     {1,"M_MESSG",	M_ChangeMessages,'m'},
-    {1,"",		M_ToggleShaders,'h'},	// [CDVK] SHADERS (was Graphic Detail)
+    {1,"",		M_ShadersPlaceholder,'h'},	// [CDVK] SHADERS placeholder (was Graphic Detail)
     {2,"M_SCRNSZ",	M_SizeDisplay,'s'},
     {-1,"",0,'\0'},
     {2,"M_MSENS",	M_ChangeSensitivity,'m'},
@@ -1006,21 +1005,17 @@ void M_DrawOptions(void)
     M_DrawThermo(OptionsDef.x,OptionsDef.y+LINEHEIGHT*(scrnsize+1),
                  9,screenSize);
 
-    // [CDVK] ADVANCED row (replaces End Game) and SHADERS row (replaces
-    // Graphic Detail): no label patches ship with the game WADs, so
+    // [CDVK] ADVANCED row (replaces End Game) and SHADERS row
+    // (placeholder): no label patches ship with the game WADs, so
     // M_DrawTextScaled draws them with the HU font, uniformly scaled to
-    // the ink height of real menu patches - M_MSGOFF for the row labels
-    // and M_GDHIGH for the ON/OFF value - so the rows match their
-    // neighbours exactly.
+    // the ink height of real menu patches (M_MSGOFF) so the rows match
+    // their neighbours exactly.
     M_DrawTextScaled(OptionsDef.x, OptionsDef.y+LINEHEIGHT*advanced,
                      "ADVANCED...",
                      W_CacheLumpName(DEH_String("M_MSGOFF"), PU_CACHE));
     M_DrawTextScaled(OptionsDef.x, OptionsDef.y+LINEHEIGHT*shaders,
                      "SHADERS",
                      W_CacheLumpName(DEH_String("M_MSGOFF"), PU_CACHE));
-    M_DrawTextScaled(OptionsDef.x + 175, OptionsDef.y+LINEHEIGHT*shaders,
-                     I_VK_Active() ? "ON" : "OFF",
-                     W_CacheLumpName(DEH_String("M_GDHIGH"), PU_CACHE));
 }
 void M_Options(int choice)
 {
@@ -1065,16 +1060,16 @@ void M_Advanced(int choice)
 }
 
 //
-// [CDVK] SHADERS ON/OFF (replaces Graphic Detail): flips usevulkan
-// and restarts the video backend; see I_ToggleShaders in i_video.c.
+// [CDVK] SHADERS row placeholder. Turning shaders off was removed: the
+// classic SDL2 fallback is not presentation-safe (stale frame content
+// keeps being overwritten), so the Vulkan + slang path is always used
+// when it is available. The row stays as a named placeholder for a
+// future use.
 //
-void M_ToggleShaders(int choice)
+void M_ShadersPlaceholder(int choice)
 {
     choice = 0;
-    S_StartSound(NULL,sfx_swtchn);
-    I_ToggleShaders();
-    players[consoleplayer].message =
-        I_VK_Active() ? DEH_String("SHADERS ON") : DEH_String("SHADERS OFF");
+    S_StartSound(NULL,sfx_oof);
 }
 
 
@@ -1991,7 +1986,7 @@ boolean M_Responder (event_t* ev)
     // F-Keys
     if (!menuactive)
     {
-	if (key == key_menu_decscreen)      // Screen size down
+	if (key == key_menu_decscreen || key == KEYP_MINUS)   // Screen size down
         {
 	    if (automapactive || chat_on)
 		return false;
@@ -1999,7 +1994,7 @@ boolean M_Responder (event_t* ev)
 	    S_StartSound(NULL,sfx_stnmov);
 	    return true;
 	}
-        else if (key == key_menu_incscreen) // Screen size up
+        else if (key == key_menu_incscreen || key == KEYP_PLUS) // Screen size up
         {
 	    if (automapactive || chat_on)
 		return false;
@@ -2042,11 +2037,6 @@ boolean M_Responder (event_t* ev)
 	    S_StartSound(NULL,sfx_swtchn);
 	    return true;
 	}
-        else if (key == key_menu_detail)   // [CDVK] F5: was Graphic Detail
-        {
-	    M_ToggleShaders(0);
-	    return true;
-        }
         else if (key == key_menu_qsave)    // Quicksave
         {
 	    S_StartSound(NULL,sfx_swtchn);

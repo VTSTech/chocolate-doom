@@ -17,23 +17,10 @@ version `3.0.0`).
   rows are drawn with the small font scaled to the height of the M_*
   patches, since no ADVANCED patch ships with the game WADs (same
   technique the FOV row introduced).
-- SHADERS : ON/OFF toggle in the Options menu of all four games,
-  replacing Graphic Detail in doom and sitting where FOV was in
-  heretic/hexen/strife. Flipping it calls the new `I_ToggleShaders()`
-  in i_video.c: `usevulkan` flips and the graphics backend restarts —
-  with a preset configured the Vulkan presenter takes over the window,
-  otherwise (or on any failure) the classic SDL2 renderer returns.
-  Hotkeys: **Shift+F12** in all four games, plus **F5** in doom and
-  heretic (F5 was Graphic Detail there; Hexen keeps F5 = suicide and
-  Strife keeps F5 = auto-use-health, so they are menu-only for the
-  toggle). The ON/OFF value is live: ON while the Vulkan presenter
-  owns the window, OFF while the classic renderer does.
-- `I_ToggleShaders()` in i_video.c/i_video.h: guarded no-op before
-  I_InitGraphics and in screensaver mode; needs no buffer ownership
-  handling (the classic path draws into `screenbuffer->pixels`, the
-  Vulkan path mallocs its own buffer and frees it on shutdown). The
-  palette resets to PLAYPAL after a toggle until the game next changes
-  it.
+- SHADERS placeholder row in the Options menu of all four games
+  (replacing Graphic Detail in doom and the FOV row in
+  heretic/hexen/strife). The row is named and selectable but
+  intentionally inert — see Removed below.
 
 - In-game field-of-view slider in the Options menu of all four games
   (64-128 degrees, default 90 = vanilla).  The weapon sprite scales
@@ -68,29 +55,36 @@ values are computed exactly from the half-angle tangent).  In
   decoupling the weapon does not change the sky; heretic/hexen already
   drew the sky from their own `skyiscale`.
 
+### Removed
+- The SHADERS ON/OFF toggle — the menu action, the **Shift+F12**
+  hotkey in all four games, and the F5 binding in doom and heretic.
+  Turning shaders off left the game unplayable: the classic SDL2
+  fallback path kept stale frame content on screen (graphics
+  overwriting themselves), and restarting the video backend mid-session
+  also desynced view state. The Vulkan + slang path is now always used
+  when it is available; the menu row remains as a named placeholder for
+  a future use, and the keypad **+** / **-** keys are now accepted as
+  aliases for the screen-size hotkeys alongside the main-row keys.
+
 ### Fixed
 
 - Floors and ceilings no longer swim ("the floor textures are
   moving/rotating") while moving or turning, and they now line up with
-  the walls at any FOV. Two defects in the flat mapping: the span
+  the walls at any FOV. Three defects in the flat mapping: the span
   origin came from the 8192-entry fine tangent tables, so distant
   floor texels jumped by up to a full texel or more every time the
-  view angle crossed a table step; and the per-row distance was built
+  view angle crossed a table step; the exact-origin replacement first
+  shipped with the pixel offset divided into the fixed-point
+  projection unconverted, which started every span row on the
+  center-ray texel and tore the flats across the screen (far worse
+  than the original artifact); and the per-row distance was built
   from `viewwidth/2` instead of the FOV focal length, so at any
   FOV other than 90 the floors were sampled at a different depth than
   the walls show (up to ~73% too far at FOV 120). The span origin and
   the per-row step are now derived from exact sin/cos/atan of the true
-  column ray (doubles, no table grid); at FOV 90 with 320x200 the
+  column ray (doubles, no table grid), with the pixel offset converted
+  to fixed point in the projection's units; at FOV 90 with 320x200 the
   wall/sprite/sky rendering is untouched.
-- Toggling SHADERS quit the game instead of switching renderers.
-  I_ShutdownGraphics() destroyed the window, renderer, textures and
-  screen-buffer surfaces but left the file-scope pointers set, so the
-  next I_InitGraphics() skipped SDL_CreateWindow (SetVideoMode() only
-  creates the window when `screen == NULL`), built a renderer against
-  the destroyed window — I_Error, game over — and re-freed
-  screenbuffer/argbbuffer through their `!= NULL` re-init guards. All
-  torn-down objects are now reset to NULL, and both restart directions
-  (classic renderer -> Vulkan presenter and back) rebuild cleanly.
 - The doom/strife menu labels ("ADVANCED...", "SHADERS", "FOV") were
   drawn by stretching every HU-font glyph to the full 15px box of the
   M_SVOL title patch: visibly taller than the 12px item patches around

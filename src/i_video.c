@@ -293,13 +293,11 @@ void I_ShutdownGraphics(void)
         }
         SDL_DestroyWindow(screen);
         SDL_QuitSubSystem(SDL_INIT_VIDEO);
-        // [CDVK] I_ToggleShaders() restarts the video backend at runtime
-        // (SHADERS ON/OFF menu item and hotkeys). Leave nothing dangling:
-        // SetVideoMode() only creates the window when screen == NULL, the
-        // surface/texture paths re-free through the != NULL guards, and
-        // CreateVKWindow() assigns a fresh window. Destroyed-but-still-set
-        // pointers made the next I_InitGraphics() build a renderer against
-        // the dead window (I_Error -> the game quit on toggle) and
+        // [CDVK] Leave nothing dangling after teardown: SetVideoMode()
+        // only creates the window when screen == NULL, and the
+        // surface/texture paths re-free through their != NULL guards.
+        // Destroyed-but-still-set pointers made a later I_InitGraphics()
+        // build a renderer against the dead window (I_Error) and
         // double-free the screen buffers.
         renderer = NULL;
         texture = NULL;
@@ -455,12 +453,6 @@ void I_GetEvent(void)
         switch (sdlevent.type)
         {
             case SDL_KEYDOWN:
-                if (sdlevent.key.keysym.scancode == SDL_SCANCODE_F12
-                    && (sdlevent.key.keysym.mod & KMOD_SHIFT) != 0)
-                {
-                    I_ToggleShaders();   // [CDVK] SHADERS ON/OFF
-                    break;
-                }
                 if (sdlevent.key.keysym.scancode == SDL_SCANCODE_SCROLLLOCK)
                 {
                     I_OverlayToggle();
@@ -1700,30 +1692,6 @@ void I_InitGraphics(void)
     // Call I_ShutdownGraphics on quit
 
     I_AtExit(I_ShutdownGraphics, true);
-}
-
-//
-// I_ToggleShaders — [CDVK] runtime SHADERS ON/OFF (Options menu item,
-// Shift+F12 in all games, F5 in doom and heretic). Flips usevulkan and
-// restarts the graphics backend: I_ShutdownGraphics tears down
-// whichever path owns the window (Vulkan presenter or classic SDL2
-// renderer) and I_InitGraphics re-runs I_VK_AttemptGraphics(), which
-// takes over when usevulkan is set and a preset is configured, and
-// cleanly falls back to the classic renderer otherwise. I_VideoBuffer
-// needs no special handling here: the classic path points at
-// screenbuffer->pixels (owned by the surfaces) and the Vulkan path
-// mallocs its own buffer and frees it in I_VK_ShutdownGraphics.
-//
-void I_ToggleShaders(void)
-{
-    if (!initialized || screensaver_mode)
-    {
-        return;
-    }
-
-    usevulkan = !usevulkan;
-    I_ShutdownGraphics();
-    I_InitGraphics();
 }
 
 // Bind all variables controlling video options into the configuration

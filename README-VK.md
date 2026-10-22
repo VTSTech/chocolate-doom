@@ -110,7 +110,6 @@ point `shader` at any `.slangp` in it; `-shader` accepts any path.
 | **Scroll Lock** (in-game) | Toggle the stats overlay (below) |
 | **PrintScreen** (in-game) | Screenshot: read back the next presented frame to the first free `vkshotNNN.tga` (same channel-correct TGA writer as `-vkcapture`) |
 | **F12** (in-game) | Cycle the shader base resolution 1x → 2x → 3x → 4x → 1x (persists in `shader_base_resolution`) |
-| **Shift+F12** (in-game) | SHADERS ON/OFF: flip `usevulkan` and restart the video backend live (menu: Options → SHADERS). Falls back to the classic renderer on any failure |
 | `-novkstats` | Start with the stats overlay off (`vkstats = 0` persists) |
 | `-vkdebug` | Enable the Vulkan validation layer for this run |
 | `-vkcapture <n>` | Dump the n-th presented frame to `vkframe.tga` |

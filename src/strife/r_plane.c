@@ -152,8 +152,11 @@ R_MapPlane
     // the plane instead of the 8192-entry fine tables.  The per-row
     // step below is exact for planes, so the whole row maps exactly
     // and floors/ceilings stop swimming when moving or turning.
+	// (x1-centerx) is a raw pixel delta: shift to fixed point
+	// before dividing by the fixed_t projection, or u is 65536x
+	// too small and every row starts on the center ray.
     {
-	double	u = (double)(x1 - centerx) / (double)projection;
+	double	u = (double)((x1 - centerx) << FRACBITS) / (double)projection;
 	double	ray = ANGTODBL(viewangle) - atan (u);
 	double	len = (double)distance * sqrt (1.0 + u * u);
 	double	xfrac = cos (ray) * len;

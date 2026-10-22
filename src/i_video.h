@@ -118,13 +118,5 @@ extern unsigned int joywait;
 
 extern int usemouse;
 
-// Runtime SHADERS ON/OFF (Options menu item + Shift+F12, all games):
-// flips usevulkan and restarts the graphics backend. With a preset
-// configured the Vulkan presenter takes over the window; on any
-// failure (or usevulkan = 0, or no preset set) the classic SDL2
-// renderer returns. No-op before I_InitGraphics / in screensaver
-// mode. The palette resets to PLAYPAL until the game next changes it.
-void I_ToggleShaders(void);
-
 
 #endif

@@ -26,10 +26,6 @@
 #include "i_timer.h"
 #include "i_swap.h"
 #include "i_video.h"
-// [CDVK] I_ToggleShaders is declared in i_video.h. I_VK_Active lives in
-// i_video_vk.h, which cannot be included here: it declares
-// `SDL_Window *screen`, clashing with Hexen's own `byte *screen`.
-extern boolean I_VK_Active(void);
 #include "m_controls.h"
 #include "m_misc.h"
 #include "p_local.h"
@@ -110,7 +106,7 @@ static void SCSfxVolume(int option);
 static void SCMusicVolume(int option);
 static void SCScreenSize(int option);
 static void SCFov(int option);         // [CDVK] FOV
-static void SCToggleShaders(int option);   // [CDVK] SHADERS ON/OFF
+static void SCShadersPlaceholder(int option);   // [CDVK] SHADERS row (placeholder)
 static boolean SCNetCheck(int option);
 static void SCNetCheck2(int option);
 static void SCLoadGame(int option);
@@ -265,7 +261,7 @@ static MenuItem_t OptionsItems[] = {
     {ITT_EFUNC, "MESSAGES : ", SCMessages, 0, MENU_NONE},
     {ITT_LRFUNC, "MOUSE SENSITIVITY", SCMouseSensi, 0, MENU_NONE},
     {ITT_EMPTY, NULL, NULL, 0, MENU_NONE},
-    {ITT_LRFUNC, "SHADERS : ", SCToggleShaders, 0, MENU_NONE},  // [CDVK] was FOV
+    {ITT_LRFUNC, "SHADERS : ", SCShadersPlaceholder, 0, MENU_NONE},  // [CDVK] placeholder (was FOV)
     {ITT_EMPTY, NULL, NULL, 0, MENU_NONE},
     {ITT_SETMENU, "MORE...", NULL, 0, MENU_OPTIONS2}
 };
@@ -795,10 +791,6 @@ static void DrawOptionsMenu(void)
         MN_DrTextB("OFF", 196, 50);
     }
     DrawSlider(&OptionsMenu, 3, 10, mouseSensitivity);
-    // [CDVK] SHADERS row (sits where FOV was; FOV moved to ADVANCED):
-    // ON while the Vulkan presenter owns the window, OFF otherwise.
-    MN_DrTextB(I_VK_Active() ? "ON" : "OFF",
-               196, OptionsMenu.y + 4 * ITEM_HEIGHT);
 }
 
 //---------------------------------------------------------------------------
@@ -1206,20 +1198,19 @@ static void SCScreenSize(int option)
 
 //---------------------------------------------------------------------------
 //
-// PROC SCToggleShaders  [CDVK]
+// PROC SCShadersPlaceholder  [CDVK]
 //
-// SHADERS ON/OFF (Options menu row, where FOV used to sit; FOV moved
-// to the ADVANCED submenu). F5 stays suicide in Hexen; Shift+F12
-// toggles here as in every game.
+// SHADERS row placeholder (where FOV used to sit; FOV moved to the
+// ADVANCED submenu). Turning shaders off was removed: the classic
+// SDL2 fallback is not presentation-safe, so the Vulkan + slang path
+// is always used when it is available. F5 stays suicide in Hexen.
 //
 //---------------------------------------------------------------------------
 
-static void SCToggleShaders(int option)
+static void SCShadersPlaceholder(int option)
 {
     option = 0;
-    I_ToggleShaders();
-    P_SetMessage(&players[consoleplayer],
-                 I_VK_Active() ? "SHADERS ON" : "SHADERS OFF", true);
+    S_StartSound(NULL, SFX_CHAT);
     return;
 }
 
@@ -1525,7 +1516,7 @@ boolean MN_Responder(event_t * event)
     }
     if (!MenuActive && !chatmodeon)
     {
-        if (key == key_menu_decscreen)
+        if (key == key_menu_decscreen || key == KEYP_MINUS)
         {
             if (automapactive)
             {               // Don't screen size in automap
@@ -1537,7 +1528,7 @@ boolean MN_Responder(event_t * event)
             UpdateState |= I_FULLSCRN;
             return (true);
         }
-        else if (key == key_menu_incscreen)
+        else if (key == key_menu_incscreen || key == KEYP_PLUS)
         {
             if (automapactive)
             {               // Don't screen size in automap

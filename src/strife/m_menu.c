@@ -35,7 +35,6 @@
 #include "i_system.h"
 #include "i_timer.h"
 #include "i_video.h"
-#include "i_video_vk.h"   // [CDVK] I_ToggleShaders / I_VK_Active
 #include "z_zone.h"
 #include "v_video.h"
 #include "w_wad.h"
@@ -179,7 +178,7 @@ void M_MusicVol(int choice);
 void M_SizeDisplay(int choice);
 void M_ChangeFOV(int choice);     // [CDVK] FOV
 void M_Advanced(int choice);      // [CDVK] ADVANCED submenu
-void M_ToggleShaders(int choice); // [CDVK] SHADERS ON/OFF
+void M_ShadersPlaceholder(int choice); // [CDVK] SHADERS row (placeholder)
 void M_StartGame(int choice);
 void M_Sound(int choice);
 
@@ -337,7 +336,7 @@ menuitem_t OptionsMenu[]=
     {1,"",		M_Advanced,'a'},	// [CDVK] ADVANCED (was End Game)
     {2,"M_SCRNSZ",	M_SizeDisplay,'s'},
     {-1,"",0,'\0'},
-    {1,"",		M_ToggleShaders,'h'},	// [CDVK] SHADERS (was FOV row)
+    {1,"",		M_ShadersPlaceholder,'h'},	// [CDVK] SHADERS placeholder (was FOV row)
     {-1,"",0,'\0'},
     {1,"M_SVOL",	M_Sound,'s'}
 };
@@ -1162,7 +1161,6 @@ char	msgNames[2][9]		= {"M_MSGOFF","M_MSGON"};
 void M_DrawOptions(void)
 {
     patch_t *label;
-    patch_t *value;
 
     // haleyjd 08/27/10: [STRIFE] M_OPTTTL -> M_OPTION
     V_DrawPatchDirect(108, 15,
@@ -1173,23 +1171,16 @@ void M_DrawOptions(void)
     M_DrawThermo(OptionsDef.x,OptionsDef.y+LINEHEIGHT*(scrnsize+1),
                  9,screenSize);
 
-    // [CDVK] ADVANCED row (replaces End Game) and SHADERS row (replaces
-    // FOV, which moved to the ADVANCED submenu). No label patches ship
-    // with strife1.wad, so M_DrawTextScaled draws them with the HU font
-    // uniformly scaled to the ink height of the M_SVOL patch, and the
-    // value column to M_GDHIGH when strife1.wad has it (as in doom).
+    // [CDVK] ADVANCED row (replaces End Game) and SHADERS row
+    // (placeholder). No label patches ship with strife1.wad, so
+    // M_DrawTextScaled draws them with the HU font uniformly scaled
+    // to the ink height of the M_SVOL patch.
     label = W_CacheLumpName(DEH_String("M_SVOL"), PU_CACHE);
-    if (W_CheckNumForName(DEH_String("M_GDHIGH")) > 0)
-        value = W_CacheLumpName(DEH_String("M_GDHIGH"), PU_CACHE);
-    else
-        value = label;
 
     M_DrawTextScaled(OptionsDef.x, OptionsDef.y+LINEHEIGHT*advanced,
                      "ADVANCED...", label);
     M_DrawTextScaled(OptionsDef.x, OptionsDef.y+LINEHEIGHT*shaders,
                      "SHADERS", label);
-    M_DrawTextScaled(OptionsDef.x + 175, OptionsDef.y+LINEHEIGHT*shaders,
-                     I_VK_Active() ? "ON" : "OFF", value);
 }
 void M_Options(int choice)
 {
@@ -1235,17 +1226,16 @@ void M_Advanced(int choice)
 }
 
 //
-// [CDVK] SHADERS ON/OFF (replaces the FOV row, which moved to the
-// ADVANCED submenu): flips usevulkan and restarts the video backend;
-// see I_ToggleShaders in i_video.c.
+// [CDVK] SHADERS row placeholder. Turning shaders off was removed: the
+// classic SDL2 fallback is not presentation-safe (stale frame content
+// keeps being overwritten), so the Vulkan + slang path is always used
+// when it is available. The row stays as a named placeholder for a
+// future use.
 //
-void M_ToggleShaders(int choice)
+void M_ShadersPlaceholder(int choice)
 {
     choice = 0;
-    S_StartSound(NULL, sfx_swtchn);
-    I_ToggleShaders();
-    players[consoleplayer].message =
-        I_VK_Active() ? DEH_String("SHADERS ON") : DEH_String("SHADERS OFF");
+    S_StartSound(NULL, sfx_oof);
 }
 
 //
@@ -2329,7 +2319,7 @@ boolean M_Responder (event_t* ev)
     // F-Keys
     if (!menuactive)
     {
-        if (key == key_menu_decscreen)      // Screen size down
+        if (key == key_menu_decscreen || key == KEYP_MINUS)   // Screen size down
         {
             if (automapactive || chat_on)
                 return false;
@@ -2337,7 +2327,7 @@ boolean M_Responder (event_t* ev)
             S_StartSound(NULL, sfx_stnmov);
             return true;
         }
-        else if (key == key_menu_incscreen) // Screen size up
+        else if (key == key_menu_incscreen || key == KEYP_PLUS) // Screen size up
         {
             if (automapactive || chat_on)
                 return false;

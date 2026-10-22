@@ -28,7 +28,6 @@
 #include "i_timer.h"
 #include "i_swap.h"
 #include "i_video.h"
-#include "i_video_vk.h"   // [CDVK] I_ToggleShaders / I_VK_Active
 #include "m_controls.h"
 #include "m_misc.h"
 #include "p_local.h"
@@ -105,7 +104,7 @@ static boolean SCSfxVolume(int option);
 static boolean SCMusicVolume(int option);
 static boolean SCScreenSize(int option);
 static boolean SCFov(int option);      // [CDVK] FOV
-static boolean SCToggleShaders(int option);   // [CDVK] SHADERS ON/OFF
+static boolean SCShadersPlaceholder(int option);   // [CDVK] SHADERS row (placeholder)
 static boolean SCLoadGame(int option);
 static boolean SCSaveGame(int option);
 static boolean SCMessages(int option);
@@ -257,7 +256,7 @@ static MenuItem_t OptionsItems[] = {
     {ITT_EFUNC, "MESSAGES : ", SCMessages, 0, MENU_NONE},
     {ITT_LRFUNC, "MOUSE SENSITIVITY", SCMouseSensi, 0, MENU_NONE},
     {ITT_EMPTY, NULL, NULL, 0, MENU_NONE},
-    {ITT_LRFUNC, "SHADERS : ", SCToggleShaders, 0, MENU_NONE},  // [CDVK] was FOV
+    {ITT_LRFUNC, "SHADERS : ", SCShadersPlaceholder, 0, MENU_NONE},  // [CDVK] placeholder (was FOV)
     {ITT_EMPTY, NULL, NULL, 0, MENU_NONE},
     {ITT_SETMENU, "MORE...", NULL, 0, MENU_OPTIONS2}
 };
@@ -724,10 +723,6 @@ static void DrawOptionsMenu(void)
         MN_DrTextB(DEH_String("OFF"), 196, 50);
     }
     DrawSlider(&OptionsMenu, 3, 10, mouseSensitivity);
-    // [CDVK] SHADERS row (sits where FOV was; FOV moved to ADVANCED):
-    // ON while the Vulkan presenter owns the window, OFF otherwise.
-    MN_DrTextB(I_VK_Active() ? "ON" : "OFF",
-               196, OptionsMenu.y + 4 * ITEM_HEIGHT);
 }
 
 //---------------------------------------------------------------------------
@@ -1097,19 +1092,19 @@ static boolean SCScreenSize(int option)
 
 //---------------------------------------------------------------------------
 //
-// PROC SCToggleShaders  [CDVK]
+// PROC SCShadersPlaceholder  [CDVK]
 //
-// SHADERS ON/OFF (Options menu row, where FOV used to sit; FOV moved
-// to the ADVANCED submenu). Shift+F12 toggles in all games.
+// SHADERS row placeholder (where FOV used to sit; FOV moved to the
+// ADVANCED submenu). Turning shaders off was removed: the classic
+// SDL2 fallback is not presentation-safe, so the Vulkan + slang path
+// is always used when it is available.
 //
 //---------------------------------------------------------------------------
 
-static boolean SCToggleShaders(int option)
+static boolean SCShadersPlaceholder(int option)
 {
     option = 0;
-    I_ToggleShaders();
-    P_SetMessage(&players[consoleplayer],
-                 I_VK_Active() ? "SHADERS ON" : "SHADERS OFF", true);
+    S_StartSound(NULL, sfx_chat);
     return true;
 }
 
@@ -1413,7 +1408,7 @@ boolean MN_Responder(event_t * event)
 
     if (!MenuActive && !chatmodeon)
     {
-        if (key == key_menu_decscreen)
+        if (key == key_menu_decscreen || key == KEYP_MINUS)
         {
             if (automapactive)
             {               // Don't screen size in automap
@@ -1425,7 +1420,7 @@ boolean MN_Responder(event_t * event)
             UpdateState |= I_FULLSCRN;
             return (true);
         }
-        else if (key == key_menu_incscreen)
+        else if (key == key_menu_incscreen || key == KEYP_PLUS)
         {
             if (automapactive)
             {               // Don't screen size in automap
@@ -1492,11 +1487,6 @@ boolean MN_Responder(event_t * event)
             }
             S_StartSound(NULL, sfx_dorcls);
             slottextloaded = false; //reload the slot text, when needed
-            return true;
-        }
-        else if (key == key_menu_detail)          // [CDVK] F5: SHADERS
-        {
-            SCToggleShaders(0);
             return true;
         }
         else if (key == key_menu_qsave)           // F6 (quicksave)
