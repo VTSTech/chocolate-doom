@@ -1,14 +1,14 @@
 AC_INIT(Chocolate Doom VK, 3.0.0,
-        chocolate-doom-dev-list@chocolate-doom.org, chocolate-doom)
+        https://github.com/VTSTech/chocolate-doom-vk/issues, chocolate-doom)
 
 PACKAGE_SHORTNAME=${PACKAGE_NAME% Doom VK}
 PACKAGE_SHORTDESC="Conservative source port"
 PACKAGE_COPYRIGHT="Copyright (C) 1993-2025"
 PACKAGE_LICENSE="GNU General Public License, version 2"
-PACKAGE_MAINTAINER="Simon Howard"
-PACKAGE_URL="https://www.chocolate-doom.org/"
+PACKAGE_MAINTAINER="VTSTech"
+PACKAGE_URL="https://github.com/VTSTech/chocolate-doom-vk"
 PACKAGE_RDNS="org.chocolate_doom"
-PACKAGE_BUGREPORT="https://github.com/chocolate-doom/chocolate-doom/issues"
+PACKAGE_BUGREPORT="https://github.com/VTSTech/chocolate-doom-vk/issues"
 
 dnl Check for Emscripten environment so we can set necessary environment variables
 AC_ARG_ENABLE(
@@ -18,7 +18,7 @@ AC_ARG_ENABLE(
            [*emcc.py], [enable_emscripten="yes"],
            [*emcc], [enable_emscripten="yes"],
            [enable_emscripten="no"]
-	  )
+          )
  ]
 )
 

@@ -14,7 +14,7 @@ set(PACKAGE_NAME "${PROJECT_NAME}")
 set(PACKAGE_TARNAME "chocolate-doom")
 set(PACKAGE_VERSION "${PROJECT_VERSION}")
 set(PACKAGE_STRING "${PROJECT_NAME} ${PROJECT_VERSION}")
-set(PACKAGE_BUGREPORT "chocolate-doom-dev-list@chocolate-doom.org")
+set(PACKAGE_BUGREPORT "https://github.com/VTSTech/chocolate-doom-vk/issues")
 
 # "Chocolate" on purpose, not derived from PACKAGE_NAME: PACKAGE_NAME
 # ("Chocolate Doom VK") no longer ends in "Doom", and PROGRAM_PREFIX

@@ -1,21 +1,26 @@
-# Chocolate Doom
+# Chocolate Doom VK
 
-Chocolate Doom aims to accurately reproduce the original DOS version of
-Doom and other games based on the Doom engine in a form that can be
-run on modern computers.
+Chocolate Doom VK is a fork of
+[Chocolate Doom](https://github.com/chocolate-doom/chocolate-doom) that
+aims to accurately reproduce the original DOS version of Doom and other
+games based on the Doom engine in a form that can be run on modern
+computers — and runs every frame of the game through a **libretro slang
+shader preset** (`.slangp` / `.slang`) using Vulkan, via
+[VTSTech/libslang-vk](https://github.com/VTSTech/libslang-vk).
 
-> **This is Chocolate Doom VK** — a fork that runs every frame through
-> libretro slang shader presets (`.slangp`) via Vulkan and
-> [VTSTech/libslang-vk](https://github.com/VTSTech/libslang-vk).
-> Classic behavior is unchanged when no preset is set; see
-> [README-VK.md](README-VK.md).
+CRT scanlines, LCD grids, phosphor decay, bezels — the same
+post-processing ecosystem emulators use, applied to the original 1993
+engine. With the feature off (or on any failure), the games behave
+exactly like upstream Chocolate Doom. See [README-VK.md](README-VK.md)
+for the full details, and [CHANGELOG.md](CHANGELOG.md) for what is new.
 
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/576ec924-1529-4db0-955a-502ceb1786bb" />
 
 Originally, Chocolate Doom was only a Doom source port. The project
-now includes ports of Heretic and Hexen, and Strife.
+now includes ports of Heretic, Hexen and Strife — and all four games
+share the same Vulkan shader path.
 
-Chocolate Doom’s aims are:
+The aims are:
 
  * To always be 100% Free and Open Source software.
  * Portability to as many different operating systems as possible.
@@ -23,49 +28,58 @@ Chocolate Doom’s aims are:
    including bugs.
  * Compatibility with the DOS demo, configuration and savegame files.
  * To provide an accurate retro “feel” (display and input should
-   behave the same).
+   behave the same), with optional modern shader post-processing.
 
-More information about the philosophy and design behind Chocolate Doom
-can be found in the PHILOSOPHY file distributed with the source code.
+More information about the philosophy and design behind the port can
+be found in the PHILOSOPHY file distributed with the source code.
 
 ## Setting up gameplay
 
-For instructions on how to set up Chocolate Doom for play, see the
-INSTALL file.
+For instructions on how to set up the games for play, see the INSTALL
+file.
+
+## Building
+
+```sh
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build          # chocolate-doom, -heretic, -hexen, -strife
+```
+
+No Vulkan SDK is required — a Vulkan-capable driver is enough, and
+`ENABLE_VK_SHADERS=OFF` builds the classic, upstream-identical path.
+See [README-VK.md](README-VK.md) for build requirements and options.
 
 ## Configuration File
 
-Chocolate Doom is compatible with the DOS Doom configuration file
+The ports are compatible with the DOS Doom configuration file
 (normally named `default.cfg`). Existing configuration files for DOS
-Doom should therefore simply work out of the box. However, Chocolate
-Doom also provides some extra settings. These are stored in a
-separate file named `chocolate-doom.cfg`.
+Doom should therefore simply work out of the box. However, extra
+settings are also provided; these are stored in a separate file named
+`chocolate-doom.cfg` (or `chocolate-heretic.cfg`, `chocolate-hexen.cfg`
+and `chocolate-strife.cfg` for the other games).
 
 The configuration can be edited using the chocolate-setup tool.
 
 ## Command line options
 
-Chocolate Doom supports a number of command line parameters, including
-some extras that were not originally suported by the DOS versions. For
-binary distributions, see the CMDLINE file included with your
-download; more information is also available on the Chocolate Doom
-website.
+The games support a number of command line parameters, including some
+extras that were not originally supported by the DOS versions. For
+binary distributions, see the CMDLINE file included with your download.
 
 ## Playing TCs
 
 With Vanilla Doom there is no way to include sprites in PWAD files.
-Chocolate Doom’s ‘-file’ command line option behaves exactly the same
-as Vanilla Doom, and trying to play TCs by adding the WAD files using
-‘-file’ will not work.
+The ‘-file’ command line option behaves exactly the same as Vanilla
+Doom, and trying to play TCs by adding the WAD files using ‘-file’
+will not work.
 
 Many Total Conversions (TCs) are distributed as a PWAD file which must
 be merged into the main IWAD. Typically a copy of DEUSF.EXE is
-included which performs this merge. Chocolate Doom includes a new
-option, ‘-merge’, which will simulate this merge. Essentially, the
-WAD directory is merged in memory, removing the need to modify the
-IWAD on disk.
+included which performs this merge. A ‘-merge’ option is included
+which will simulate this merge. Essentially, the WAD directory is
+merged in memory, removing the need to modify the IWAD on disk.
 
-To play TCs using Chocolate Doom, run like this:
+To play TCs, run like this:
 
 ```
 chocolate-doom -merge thetc.wad
@@ -80,31 +94,23 @@ chocolate-doom -merge aoddoom1.wad -deh aoddoom1.deh  (Army of Darkness Doom)
 
 ## Other information
 
- * Chocolate Doom includes a number of different options for music
-   playback. See the README.Music file for more details.
+ * The games include a number of different options for music playback.
+   See the README.Music file for more details.
 
- * More information, including information about how to play various
-   classic TCs, is available on the Chocolate Doom website:
+ * Because the aim is to accurately emulate and reproduce the DOS
+   executables, you may encounter Vanilla Doom bugs; these are
+   intentionally present; see the NOT-BUGS file for more information.
 
-     https://www.chocolate-doom.org/
+ * Notes specific to the Strife port are in the README.Strife file.
 
-   You are encouraged to sign up and contribute any useful information
-   you may have regarding the port!
-
- * Chocolate Doom is not perfect. Although it aims to accurately
-   emulate and reproduce the DOS executables, some behavior can be very
-   difficult to reproduce. Because of the nature of the project, you
-   may also encounter Vanilla Doom bugs; these are intentionally
-   present; see the NOT-BUGS file for more information.
-
-   New bug reports, feedback, questions or suggestions can be submitted
+ * New bug reports, feedback, questions or suggestions can be submitted
    to the issue tracker on Github:
 
-     https://github.com/chocolate-doom/chocolate-doom/issues
+     https://github.com/VTSTech/chocolate-doom-vk/issues
 
  * Source code patches are welcome, but please follow the style
    guidelines - see the file named HACKING included with the source
    distribution.
 
- * Chocolate Doom is distributed under the GNU GPL. See the COPYING
-   file for more information.
+ * The games are distributed under the GNU GPL. See the COPYING file
+   for more information.

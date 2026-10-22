@@ -147,6 +147,6 @@ jobs:
         uses: ncipollo/release-action@v1
         with:
           name: ${{ env.PACKAGE_STRING }}
-          bodyFile: RELEASE_NOTES.md
+          bodyFile: CHANGELOG.md
           allowUpdates: true
           artifacts: ${{ matrix.config.pkg-path }}

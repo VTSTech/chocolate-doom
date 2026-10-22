@@ -15,10 +15,10 @@ CMAKE_FILES=                                   \
 DOC_FILES=                              \
         COPYING.md                      \
         README.md                       \
+        README-VK.md                    \
         README.Music.md                 \
-        NEWS.md                         \
-        PHILOSOPHY.md                   \
-        ChangeLog
+        CHANGELOG.md                    \
+        PHILOSOPHY.md
 
 EXTRA_DIST=                             \
         $(AUX_DIST_GEN)                 \
@@ -28,7 +28,6 @@ EXTRA_DIST=                             \
         README.Strife.md                \
         .lvimrc                         \
         HACKING.md                      \
-        TODO.md                         \
         rpm.spec                        \
         win32/win_opendir.c             \
         win32/win_opendir.h
@@ -54,9 +53,9 @@ DIST_SUBDIRS=pkg $(SUBDIRS)
 if HAVE_DOC
 
 INSTALL : man/INSTALL.template man/simplecpp
-	$(srcdir)/man/simplecpp -DDOOM -DHERETIC -DHEXEN -DSTRIFE \
+        $(srcdir)/man/simplecpp -DDOOM -DHERETIC -DHEXEN -DSTRIFE \
             -DLONG_GAME_NAME="@PACKAGE_SHORTNAME@ Doom" \
             -DLONG_EXE_NAME="@PROGRAM_PREFIX@doom" \
-	                < $(srcdir)/man/INSTALL.template > $@
+                        < $(srcdir)/man/INSTALL.template > $@
 
 endif
