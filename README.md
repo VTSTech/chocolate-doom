@@ -1,10 +1,14 @@
-# Chocolate Doom VK
+# Chocolate Doom
 
-**This is Chocolate Doom VK** — a fork that runs every frame through
-libretro slang shader presets (`.slangp`) via Vulkan and
-[VTSTech/libslang-vk](https://github.com/VTSTech/libslang-vk).
-Classic behavior is unchanged when no preset is set; see
-[README-VK.md](README-VK.md).
+Chocolate Doom aims to accurately reproduce the original DOS version of
+Doom and other games based on the Doom engine in a form that can be
+run on modern computers.
+
+> **This is Chocolate Doom VK** — a fork that runs every frame through
+> libretro slang shader presets (`.slangp`) via Vulkan and
+> [VTSTech/libslang-vk](https://github.com/VTSTech/libslang-vk).
+> Classic behavior is unchanged when no preset is set; see
+> [README-VK.md](README-VK.md).
 
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/576ec924-1529-4db0-955a-502ceb1786bb" />
 

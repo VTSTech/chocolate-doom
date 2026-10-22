@@ -1412,24 +1412,9 @@ M_DrawTextScaled
     patch_t     *glyph;
     column_t    *column;
     column_t    *post;
-    int         pct;            // [CDVK] ui_scale
 
     if (height < 1)
         return;
-
-    // [CDVK] ui_scale: apply the active menu scale to the entry
-    // coordinates and target height (call sites stay in design
-    // units, like the rest of the menu code, which the V_DrawPatch
-    // family scales internally).
-    pct = V_UIScaleActive();
-    if (pct != 100)
-    {
-        x = (x * pct + 50) / 100;
-        y = (y * pct + 50) / 100;
-        height = (height * pct + 50) / 100;
-        if (height < 1)
-            height = 1;
-    }
 
     cx = x;
 
@@ -2107,7 +2092,6 @@ void M_Drawer (void)
     int			start;
 
     inhelpscreens = false;
-    V_UIScaleOn();            // [CDVK] ui_scale: menus + messages
     
     // Horiz. & Vertically center string and print it.
     if (messageToPrint)
@@ -2146,7 +2130,6 @@ void M_Drawer (void)
 	    y += SHORT(hu_font[0]->height);
 	}
 
-	V_UIScaleOff();		// [CDVK] ui_scale
 	return;
     }
 
@@ -2156,10 +2139,7 @@ void M_Drawer (void)
     }
 
     if (!menuactive)
-    {
-	V_UIScaleOff();		// [CDVK] ui_scale
 	return;
-    }
 
     if (currentMenu->routine)
 	currentMenu->routine();         // call Draw routine
@@ -2185,8 +2165,6 @@ void M_Drawer (void)
     V_DrawPatchDirect(x + SKULLXOFF, currentMenu->y - 5 + itemOn*LINEHEIGHT,
 		      W_CacheLumpName(DEH_String(skullName[whichSkull]),
 				      PU_CACHE));
-
-    V_UIScaleOff();		// [CDVK] ui_scale
 }
 
 

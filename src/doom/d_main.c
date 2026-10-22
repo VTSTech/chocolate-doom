@@ -358,7 +358,6 @@ void D_BindVariables(void)
     M_BindIntVariable("show_messages",          &showMessages);
     M_BindIntVariable("screenblocks",           &screenblocks);
     M_BindIntVariable("fov",                    &fov);
-    M_BindIntVariable("ui_scale",               &ui_scale);
     M_BindIntVariable("detaillevel",            &detailLevel);
     M_BindIntVariable("snd_channels",           &snd_channels);
     M_BindIntVariable("vanilla_savegame_limit", &vanilla_savegame_limit);

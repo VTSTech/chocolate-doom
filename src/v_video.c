@@ -65,172 +65,6 @@ int dirtybox[4];
 // This is needed for Chocolate Strife, which clips patches to the screen.
 static vpatchclipfunc_t patchclip_callback = NULL;
 
-// [CDVK] UI scale -------------------------------------------------------
-//
-// "ui_scale" (config, percent, valid 50-100) shrinks the 2D overlay
-// artwork - in-game menus, sliders, cursors and the status-bar HUD -
-// while it is being drawn: the game drawers call V_UIScaleOn() on
-// entry and V_UIScaleOff() on exit, and the patch blitters below then
-// draw everything at pct% of the original size with nearest-neighbour
-// sampling into the same 320x200 canvas.  Call sites keep their
-// "design" (unscaled) coordinates, so all layout relationships are
-// preserved exactly.  100 (or any value outside 50-100) is a
-// passthrough: the unscaled code paths are used unchanged and the
-// output is pixel-identical with the vanilla games.
-
-static int v_uiscale_pct = 100;    // scale in effect (100 = off)
-
-int V_GetUIScale(void)
-{
-    // Effective value of the ui_scale config variable.  Anything
-    // outside 50-100 is ignored (drawn at 100).
-
-    if (ui_scale < 50 || ui_scale > 100)
-    {
-        return 100;
-    }
-    return ui_scale;
-}
-
-void V_UIScaleOn(void)
-{
-    v_uiscale_pct = V_GetUIScale();
-}
-
-void V_UIScaleOff(void)
-{
-    v_uiscale_pct = 100;
-}
-
-int V_UIScaleActive(void)
-{
-    return v_uiscale_pct;
-}
-// [CDVK] UI scale: scaled patch blitter used by the V_Draw*Patch*
-// family while the UI scale is active.  Destination size =
-// round(size * pct / 100); source pixels are picked nearest-
-// neighbour.  The per-pixel writes replicate the unscaled variants
-// above exactly (same tables, same order), with one addition:
-// writes that would land outside the canvas are skipped, so
-// elements that overhang an edge in the original layout (strife
-// draws some patches partly off-screen by design) stay silent
-// instead of corrupting memory.
-
-typedef enum {
-    VSP_COPY,       // V_DrawPatch / V_DrawPatchDirect
-    VSP_TL,         // V_DrawTLPatch
-    VSP_XLA,        // V_DrawXlaPatch
-    VSP_ALTTL,      // V_DrawAltTLPatch
-    VSP_SHADOW      // V_DrawShadowedPatch
-} vscaled_mode_t;
-
-// round(v * pct / 100), halves away from zero for the values in use
-static int vs_round(int v, int pct)
-{
-    return (v * pct + 50) / 100;
-}
-
-static void V_DrawPatchScaled(int x, int y, patch_t *patch,
-                              vscaled_mode_t mode)
-{
-    int pct = v_uiscale_pct;
-    int w = SHORT(patch->width);
-    int h = SHORT(patch->height);
-    int sx, sy, sw, sh;
-    int dx, dy;
-    int shadow_off;
-    pixel_t *desttop;
-
-    // Same anchor semantics as the unscaled paths: the call locates
-    // the patch at (x - leftoffset, y - topoffset); scale that point.
-    sx = vs_round(x - SHORT(patch->leftoffset), pct);
-    sy = vs_round(y - SHORT(patch->topoffset), pct);
-    sw = vs_round(w, pct);
-    sh = vs_round(h, pct);
-    if (sw < 1) sw = 1;
-    if (sh < 1) sh = 1;
-    shadow_off = vs_round(2, pct);  // shadow offset, V_DrawShadowedPatch
-
-    // Strife registers a clip callback; honour it, conservatively
-    // (it judges the original patch size against the scaled origin).
-    if (patchclip_callback && !patchclip_callback(patch, sx, sy))
-    {
-        return;
-    }
-
-    V_MarkRect(sx, sy, sw, sh);
-
-    desttop = dest_screen + sy * SCREENWIDTH + sx;
-
-    for (dx = 0; dx < sw; dx++, desttop++)
-    {
-        int col = dx * w / sw;
-        column_t *column =
-            (column_t *) ((byte *) patch + LONG(patch->columnofs[col]));
-
-        for (dy = 0; dy < sh; dy++)
-        {
-            int row = dy * h / sh;    // source row within the patch
-            int X = sx + dx, Y = sy + dy;
-            pixel_t *dest;
-            byte *src = NULL;
-            column_t *post = column;
-
-            if (X < 0 || X >= SCREENWIDTH || Y < 0 || Y >= SCREENHEIGHT)
-            {
-                continue;   // never write outside the canvas
-            }
-
-            dest = desttop + dy * SCREENWIDTH;
-
-            // find the post that contains `row` (the gaps between
-            // posts stay transparent, exactly as in the unscaled
-            // blits)
-            while (post->topdelta != 0xff)
-            {
-                if (row >= post->topdelta
-                    && row < post->topdelta + post->length)
-                {
-                    src = ((byte *) post + 3) + (row - post->topdelta);
-                    break;
-                }
-                post = (column_t *) ((byte *) post + post->length + 4);
-            }
-
-            switch (mode)
-            {
-            case VSP_COPY:
-                if (src) *dest = *src;
-                break;
-            case VSP_TL:
-                if (src) *dest = tinttable[*dest + ((*src) << 8)];
-                break;
-            case VSP_XLA:
-                if (src) *dest = xlatab[*dest + ((*src) << 8)];
-                break;
-            case VSP_ALTTL:
-                if (src) *dest = tinttable[((*dest) << 8) + *src];
-                break;
-            case VSP_SHADOW:
-                if (src)
-                {
-                    if (X + shadow_off < SCREENWIDTH
-                     && Y + shadow_off < SCREENHEIGHT)
-                    {
-                        pixel_t *dest2 =
-                            dest + shadow_off * SCREENWIDTH + shadow_off;
-                        *dest2 = tinttable[((*dest2) << 8)];
-                    }
-                    *dest = *src;
-                }
-                break;
-            }
-        }
-    }
-}
-
-// [CDVK] UI scale: like V_CopyRect, but the source rect
-
 //
 // V_MarkRect 
 // 
@@ -256,17 +90,6 @@ void V_CopyRect(int srcx, int srcy, pixel_t *source,
 { 
     pixel_t *src;
     pixel_t *dest;
-    // [CDVK] UI scale: STLIB erases widget areas by copying the
-    // status-bar background over them; scale with the active UI
-    // scale so they line up with the scaled bar.
-    if (v_uiscale_pct != 100)
-    {
-        V_CopyRectScaled(v_uiscale_pct, srcx, srcy, source,
-                         width, height, destx, desty);
-        return;
-    }
-
-
  
 #ifdef RANGECHECK 
     if (srcx < 0
@@ -324,13 +147,6 @@ void V_DrawPatch(int x, int y, patch_t *patch)
     pixel_t *dest;
     byte *source;
     int w;
-
-    // [CDVK] UI scale
-    if (v_uiscale_pct != 100)
-    {
-        V_DrawPatchScaled(x, y, patch, VSP_COPY);
-        return;
-    }
 
     y -= SHORT(patch->topoffset);
     x -= SHORT(patch->leftoffset);
@@ -470,13 +286,6 @@ void V_DrawTLPatch(int x, int y, patch_t * patch)
     byte *source;
     int w;
 
-    // [CDVK] UI scale
-    if (v_uiscale_pct != 100)
-    {
-        V_DrawPatchScaled(x, y, patch, VSP_TL);
-        return;
-    }
-
     y -= SHORT(patch->topoffset);
     x -= SHORT(patch->leftoffset);
 
@@ -528,13 +337,6 @@ void V_DrawXlaPatch(int x, int y, patch_t * patch)
     byte *source;
     int w;
 
-    // [CDVK] UI scale
-    if (v_uiscale_pct != 100)
-    {
-        V_DrawPatchScaled(x, y, patch, VSP_XLA);
-        return;
-    }
-
     y -= SHORT(patch->topoffset);
     x -= SHORT(patch->leftoffset);
 
@@ -584,13 +386,6 @@ void V_DrawAltTLPatch(int x, int y, patch_t * patch)
     pixel_t *desttop, *dest;
     byte *source;
     int w;
-
-    // [CDVK] UI scale
-    if (v_uiscale_pct != 100)
-    {
-        V_DrawPatchScaled(x, y, patch, VSP_ALTTL);
-        return;
-    }
 
     y -= SHORT(patch->topoffset);
     x -= SHORT(patch->leftoffset);
@@ -644,13 +439,6 @@ void V_DrawShadowedPatch(int x, int y, patch_t *patch)
     pixel_t *desttop2, *dest2;
     int w;
 
-    // [CDVK] UI scale
-    if (v_uiscale_pct != 100)
-    {
-        V_DrawPatchScaled(x, y, patch, VSP_SHADOW);
-        return;
-    }
-
     y -= SHORT(patch->topoffset);
     x -= SHORT(patch->leftoffset);
 
@@ -689,51 +477,6 @@ void V_DrawShadowedPatch(int x, int y, patch_t *patch)
 
             }
             column = (column_t *) ((byte *) column + column->length + 4);
-        }
-    }
-}
-
-// (srcx, srcy, width, height) is sampled to a destination of
-// (width*pct, height*pct) rounded, placed at (destx, desty) scaled.
-// Used by V_CopyRect while the UI scale is active (the STLIB widget
-// erases) and by the doom status bar, which builds its 320x32
-// "backing screen" unscaled and blits it down in one go.  pct = 100
-// degenerates to the identity copy (the same code path).
-void V_CopyRectScaled(int pct, int srcx, int srcy, pixel_t *source,
-                       int width, int height,
-                       int destx, int desty)
-{
-    int dw, dh, dX, dY;
-    int dx, dy;
-
-    if (width <= 0 || height <= 0)
-    {
-        return;
-    }
-
-    dw = vs_round(width, pct);
-    dh = vs_round(height, pct);
-    if (dw < 1) dw = 1;
-    if (dh < 1) dh = 1;
-    dX = vs_round(destx, pct);
-    dY = vs_round(desty, pct);
-
-    V_MarkRect(dX, dY, dw, dh);
-
-    for (dy = 0; dy < dh; dy++)
-    {
-        int sy = srcy + dy * height / dh;
-        for (dx = 0; dx < dw; dx++)
-        {
-            int sx = srcx + dx * width / dw;
-            int X = dX + dx, Y = dY + dy;
-
-            if (X < 0 || X >= SCREENWIDTH || Y < 0 || Y >= SCREENHEIGHT)
-            {
-                continue;   // never write outside the canvas
-            }
-            dest_screen[Y * SCREENWIDTH + X] =
-                source[sy * SCREENWIDTH + sx];
         }
     }
 }

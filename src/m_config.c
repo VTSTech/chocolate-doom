@@ -536,21 +536,6 @@ static default_t        doom_defaults_list[] =
     CONFIG_VARIABLE_INT(fov),
 
     //!
-    // @game doom heretic hexen strife
-    //
-    // Size of the 2D user interface (in-game menus, sliders and the
-    // status bar), in percent of the original artwork size.  Range
-    // 50-100; the default of 100 is pixel-identical with the vanilla
-    // games.  Smaller values shrink the overlays with nearest-
-    // neighbour sampling, so the in-game menus use less of the screen
-    // and the status bar takes up less room.  50, 75 and 100 give the
-    // crispest results; values outside the range are ignored (the UI
-    // is drawn at 100).
-    //
-
-    CONFIG_VARIABLE_INT(ui_scale),
-
-    //!
     // @game doom
     //
     // Screen detail.  Zero gives normal "high detail" mode, while

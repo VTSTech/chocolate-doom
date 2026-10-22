@@ -358,22 +358,7 @@ void ST_refreshBackground(void)
 
         V_RestoreBuffer();
 
-        // [CDVK] ui_scale: blit the bar downscaled (top-left
-        // anchored); clear the rest of the band first so the
-        // shrunken bar does not leave stale rows/columns at the
-        // bottom/right edge.
-        if (V_GetUIScale() != 100)
-        {
-            V_DrawFilledBox(ST_X, ST_Y, SCREENWIDTH - ST_X,
-                            SCREENHEIGHT - ST_Y, 0);
-            V_CopyRectScaled(V_GetUIScale(), ST_X, 0, st_backing_screen,
-                              ST_WIDTH, ST_HEIGHT, ST_X, ST_Y);
-        }
-        else
-        {
-            V_CopyRect(ST_X, 0, st_backing_screen, ST_WIDTH, ST_HEIGHT,
-                       ST_X, ST_Y);
-        }
+	V_CopyRect(ST_X, 0, st_backing_screen, ST_WIDTH, ST_HEIGHT, ST_X, ST_Y);
     }
 
 }
@@ -963,7 +948,6 @@ void ST_drawWidgets(boolean refresh)
 {
     int		i;
 
-    V_UIScaleOn();            // [CDVK] ui_scale: bar + widgets
     // used by w_arms[] widgets
     st_armson = st_statusbaron && !deathmatch;
 
@@ -993,7 +977,6 @@ void ST_drawWidgets(boolean refresh)
 
     STlib_updateNum(&w_frags, refresh);
 
-    V_UIScaleOff();        // [CDVK] ui_scale
 }
 
 void ST_doRefresh(void)

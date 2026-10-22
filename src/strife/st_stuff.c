@@ -976,21 +976,10 @@ void ST_drawLine(int x, int y, int len, int color)
 //
 void ST_doRefresh(void)
 {
-    V_UIScaleOn();        // [CDVK] ui_scale: bar + widgets
-
     // draw status bar background to off-screen buff
     if (st_statusbaron)
     {
         int firstinventory, icon_x, num_x, i, numdrawn;
-
-        // [CDVK] ui_scale: strife draws the bar straight to the
-        // screen; clear the band first so the shrunken bar does
-        // not leave stale rows/columns at the bottom/right edge.
-        if (V_UIScaleActive() != 100)
-        {
-            V_DrawFilledBox(ST_X, ST_Y, SCREENWIDTH - ST_X,
-                            SCREENHEIGHT - ST_Y, 0);
-        }
 
         // haleyjd 20100919: No backscreen caching in Strife.
         //V_UseBuffer(st_backing_screen);
@@ -1118,8 +1107,6 @@ void ST_doRefresh(void)
         //V_RestoreBuffer();
         //V_CopyRect(ST_X, 0, st_backing_screen, ST_WIDTH, ST_HEIGHT, ST_X, ST_Y);
     }
-
-    V_UIScaleOff();        // [CDVK] ui_scale
 }
 
 // haleyjd [STRIFE]: Removed ST_diffDraw

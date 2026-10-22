@@ -444,7 +444,6 @@ void D_BindVariables(void)
 
     M_BindIntVariable("mouse_sensitivity",      &mouseSensitivity);
     M_BindIntVariable("fov",                    &fov);
-    M_BindIntVariable("ui_scale",               &ui_scale);
     M_BindIntVariable("sfx_volume",             &sfxVolume);
     M_BindIntVariable("music_volume",           &musicVolume);
     M_BindIntVariable("voice_volume",           &voiceVolume); 

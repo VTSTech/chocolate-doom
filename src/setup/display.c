@@ -68,10 +68,6 @@ static int video_display = 0;
 static int aspect_ratio_correct = 1;
 static int integer_scaling = 0;
 static int smooth_pixel_scaling = 1;
-// [CDVK] UI scale (percent, 50-100; 100 = vanilla).  Kept as a setup
-// local like the others above: the value is saved to the config file
-// and the games load the same key into their own ui_scale variable.
-static int ui_scale = 100;
 static int vga_porch_flash = 0;
 static int force_software_renderer = 0;
 static int fullscreen = 1;
@@ -213,8 +209,6 @@ static void AdvancedDisplayConfig(TXT_UNCAST_ARG(widget),
                         &png_screenshots),
 #endif
         TXT_NewCheckBox("Smooth pixel scaling", &smooth_pixel_scaling),
-        TXT_NewLabel("UI scale (menus & HUD):"),
-        TXT_NewSpinControl(&ui_scale, 50, 100),
         NULL);
 
     TXT_SignalConnect(ar_checkbox, "changed", GenerateSizesTable, sizes_table);
@@ -263,7 +257,6 @@ void BindDisplayVariables(void)
     M_BindIntVariable("aspect_ratio_correct",      &aspect_ratio_correct);
     M_BindIntVariable("integer_scaling",           &integer_scaling);
     M_BindIntVariable("smooth_pixel_scaling",      &smooth_pixel_scaling);
-    M_BindIntVariable("ui_scale",                  &ui_scale);
     M_BindIntVariable("fullscreen",                &fullscreen);
     M_BindIntVariable("fullscreen_width",          &fullscreen_width);
     M_BindIntVariable("fullscreen_height",         &fullscreen_height);

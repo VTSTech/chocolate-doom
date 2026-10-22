@@ -546,8 +546,6 @@ void SB_Drawer(void)
     int frame;
     static boolean hitCenterFrame;
 
-    V_UIScaleOn();      // [CDVK] ui_scale: status bar + fullscreen HUD
-
     // Sound info debug stuff
     if (DebugSound == true)
     {
@@ -561,13 +559,6 @@ void SB_Drawer(void)
     }
     else
     {
-        // [CDVK] ui_scale: clear the status-bar band first so the
-        // shrunken bar does not leave stale rows at the bottom/
-        // right edge (PatchBARBACK sits at y=158).
-        if (V_UIScaleActive() != 100)
-        {
-            V_DrawFilledBox(0, 158, SCREENWIDTH, SCREENHEIGHT - 158, 0);
-        }
         if (SB_state == -1)
         {
             V_DrawPatch(0, 158, PatchBARBACK);
@@ -685,8 +676,6 @@ void SB_Drawer(void)
 		}
 	}
 */
-
-    V_UIScaleOff();    // [CDVK] ui_scale
 }
 
 // sets the new palette based upon current values of player->damagecount
