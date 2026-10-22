@@ -1,7 +1,7 @@
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 cmake_minimum_required(VERSION 3.7.2)
-project("Chocolate Doom" VERSION 3.1.1 LANGUAGES C)
+project("Chocolate Doom VK" VERSION 3.0.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 99)
 
@@ -16,7 +16,11 @@ set(PACKAGE_VERSION "${PROJECT_VERSION}")
 set(PACKAGE_STRING "${PROJECT_NAME} ${PROJECT_VERSION}")
 set(PACKAGE_BUGREPORT "chocolate-doom-dev-list@chocolate-doom.org")
 
-string(REGEX REPLACE " Doom$" "" PACKAGE_SHORTNAME "${PACKAGE_NAME}")
+# "Chocolate" on purpose, not derived from PACKAGE_NAME: PACKAGE_NAME
+# ("Chocolate Doom VK") no longer ends in "Doom", and PROGRAM_PREFIX
+# below derives from this — executable / config / savegame names must
+# stay chocolate-*.
+set(PACKAGE_SHORTNAME "Chocolate")
 set(PACKAGE_COPYRIGHT "Copyright (C) 1993-2025")
 set(PACKAGE_LICENSE "GNU General Public License, version 2")
 

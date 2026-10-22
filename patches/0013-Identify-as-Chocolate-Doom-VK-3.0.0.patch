@@ -1,0 +1,121 @@
+From baed249df328af6c260372f660e9d8a2ce0734e1 Mon Sep 17 00:00:00 2001
+From: Nigel Todman <veritas@vts-tech.org>
+Date: Thu, 22 Oct 2026 00:35:11 +0000
+Subject: [PATCH] Identify as Chocolate Doom VK 3.0.0
+
+Every user-facing surface said upstream "Chocolate Doom 3.1.1": the
+startup banner, the gpu-scaler.log header, the window title, the
+-version output, message-box titles, the Windows VERSIONINFO
+resources, and the string exchanged with network peers. Renaming
+project() flows PACKAGE_NAME/PACKAGE_STRING through both build
+systems (CMake and autotools configure.ac, kept in sync).
+
+PACKAGE_SHORTNAME is now set explicitly to "Chocolate" instead of
+being stripped from PACKAGE_NAME with a " Doom$" regex that no
+longer matches: PROGRAM_PREFIX derives from it, and the executable,
+config and savegame names must stay chocolate-* so existing
+installs keep working.
+
+The Vulkan application name drops its now-redundant " (VK)" suffix
+(it would read "Chocolate Doom VK 3.0.0 (VK)").
+
+Netplay note: the version handshake compares PACKAGE_STRING
+verbatim, so network games require matching VK builds; upstream
+3.1.1 peers get a clean version-mismatch rejection.
+
+CHANGELOG: recorded under v3 (which ships as package version 3.0.0).
+---
+ CHANGELOG.md     | 14 +++++++++++++-
+ CMakeLists.txt   |  8 ++++++--
+ configure.ac     |  4 ++--
+ src/i_video_vk.c |  2 +-
+ 4 files changed, 22 insertions(+), 6 deletions(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index d59b95e6..942f7874 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -5,7 +5,8 @@ this fork adds on top of upstream Chocolate Doom. Upstream changes keep
+ living in upstream's own history and are not tracked here.
+ 
+ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+-Versions: this repository's `v<N>` tags.
++Versions: this repository's `v<N>` tags (`v3` ships as package
++version `3.0.0`).
+ 
+ ## [Unreleased]
+ 
+@@ -70,6 +71,17 @@ Windows, and `libslang-vk` as a shared DLL.
+ - This `CHANGELOG.md`.
+ 
+ ### Changed
++- **The fork now identifies as Chocolate Doom VK 3.0.0** — every
++  user-facing surface used to say upstream `Chocolate Doom 3.1.1`:
++  the startup banner, the `gpu-scaler.log` header, the window title,
++  `-version` output, message-box titles, the Windows file properties
++  (VERSIONINFO) and the string exchanged with network peers.
++  Executable, config and savegame names deliberately stay
++  `chocolate-*` (`PROGRAM_PREFIX` is unchanged), so existing installs
++  keep working. One behavioral note: the network version check
++  compares this string verbatim, so network games now need matching
++  VK builds — upstream 3.1.1 peers get a clean version-mismatch
++  rejection (and would desync anyway).
+ - `libslang-vk` pinned to **M4.07** (commit `d176d1b…`, immutable full
+   hash; v2 used the mutable `M4.05` tag). The M4.05-era library had
+   bugs that made the Vulkan path fail to start on real drivers — the
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 52ef1912..13ce2b7e 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1,7 +1,7 @@
+ set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+ 
+ cmake_minimum_required(VERSION 3.7.2)
+-project("Chocolate Doom" VERSION 3.1.1 LANGUAGES C)
++project("Chocolate Doom VK" VERSION 3.0.0 LANGUAGES C)
+ 
+ set(CMAKE_C_STANDARD 99)
+ 
+@@ -16,7 +16,11 @@ set(PACKAGE_VERSION "${PROJECT_VERSION}")
+ set(PACKAGE_STRING "${PROJECT_NAME} ${PROJECT_VERSION}")
+ set(PACKAGE_BUGREPORT "chocolate-doom-dev-list@chocolate-doom.org")
+ 
+-string(REGEX REPLACE " Doom$" "" PACKAGE_SHORTNAME "${PACKAGE_NAME}")
++# "Chocolate" on purpose, not derived from PACKAGE_NAME: PACKAGE_NAME
++# ("Chocolate Doom VK") no longer ends in "Doom", and PROGRAM_PREFIX
++# below derives from this — executable / config / savegame names must
++# stay chocolate-*.
++set(PACKAGE_SHORTNAME "Chocolate")
+ set(PACKAGE_COPYRIGHT "Copyright (C) 1993-2025")
+ set(PACKAGE_LICENSE "GNU General Public License, version 2")
+ 
+diff --git a/configure.ac b/configure.ac
+index 26e6958d..809acb00 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -1,7 +1,7 @@
+-AC_INIT(Chocolate Doom, 3.1.1,
++AC_INIT(Chocolate Doom VK, 3.0.0,
+         chocolate-doom-dev-list@chocolate-doom.org, chocolate-doom)
+ 
+-PACKAGE_SHORTNAME=${PACKAGE_NAME% Doom}
++PACKAGE_SHORTNAME=${PACKAGE_NAME% Doom VK}
+ PACKAGE_SHORTDESC="Conservative source port"
+ PACKAGE_COPYRIGHT="Copyright (C) 1993-2025"
+ PACKAGE_LICENSE="GNU General Public License, version 2"
+diff --git a/src/i_video_vk.c b/src/i_video_vk.c
+index cf396ae0..8384ce3f 100644
+--- a/src/i_video_vk.c
++++ b/src/i_video_vk.c
+@@ -1350,7 +1350,7 @@ boolean I_VK_AttemptGraphics(void)
+     }
+ 
+     memset(&dopt, 0, sizeof(dopt));
+-    dopt.app_name = PACKAGE_STRING " (VK)";
++    dopt.app_name = PACKAGE_STRING;
+     dopt.min_api_version = 0;               // VK 1.1
+     dopt.validation_layers = vk_debug ? 1u : 0u;
+     dopt.instance_extensions = inst_exts;
+-- 
+2.47.3
+

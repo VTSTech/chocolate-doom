@@ -5,7 +5,8 @@ this fork adds on top of upstream Chocolate Doom. Upstream changes keep
 living in upstream's own history and are not tracked here.
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-Versions: this repository's `v<N>` tags.
+Versions: this repository's `v<N>` tags (`v3` ships as package
+version `3.0.0`).
 
 ## [Unreleased]
 
@@ -70,6 +71,17 @@ Windows, and `libslang-vk` as a shared DLL.
 - This `CHANGELOG.md`.
 
 ### Changed
+- **The fork now identifies as Chocolate Doom VK 3.0.0** — every
+  user-facing surface used to say upstream `Chocolate Doom 3.1.1`:
+  the startup banner, the `gpu-scaler.log` header, the window title,
+  `-version` output, message-box titles, the Windows file properties
+  (VERSIONINFO) and the string exchanged with network peers.
+  Executable, config and savegame names deliberately stay
+  `chocolate-*` (`PROGRAM_PREFIX` is unchanged), so existing installs
+  keep working. One behavioral note: the network version check
+  compares this string verbatim, so network games now need matching
+  VK builds — upstream 3.1.1 peers get a clean version-mismatch
+  rejection (and would desync anyway).
 - `libslang-vk` pinned to **M4.07** (commit `d176d1b…`, immutable full
   hash; v2 used the mutable `M4.05` tag). The M4.05-era library had
   bugs that made the Vulkan path fail to start on real drivers — the

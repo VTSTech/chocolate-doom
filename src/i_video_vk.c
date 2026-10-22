@@ -1350,7 +1350,7 @@ boolean I_VK_AttemptGraphics(void)
     }
 
     memset(&dopt, 0, sizeof(dopt));
-    dopt.app_name = PACKAGE_STRING " (VK)";
+    dopt.app_name = PACKAGE_STRING;
     dopt.min_api_version = 0;               // VK 1.1
     dopt.validation_layers = vk_debug ? 1u : 0u;
     dopt.instance_extensions = inst_exts;

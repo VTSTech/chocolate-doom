@@ -1,7 +1,7 @@
-AC_INIT(Chocolate Doom, 3.1.1,
+AC_INIT(Chocolate Doom VK, 3.0.0,
         chocolate-doom-dev-list@chocolate-doom.org, chocolate-doom)
 
-PACKAGE_SHORTNAME=${PACKAGE_NAME% Doom}
+PACKAGE_SHORTNAME=${PACKAGE_NAME% Doom VK}
 PACKAGE_SHORTDESC="Conservative source port"
 PACKAGE_COPYRIGHT="Copyright (C) 1993-2025"
 PACKAGE_LICENSE="GNU General Public License, version 2"
