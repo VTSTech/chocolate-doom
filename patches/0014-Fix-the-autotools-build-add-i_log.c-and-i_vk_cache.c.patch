@@ -1,0 +1,104 @@
+From e8bfc440a5f2994d6124e6fc6bcb88cabf8d57f5 Mon Sep 17 00:00:00 2001
+From: Nigel Todman <veritas@vts-tech.org>
+Date: Thu, 22 Oct 2026 01:15:41 +0000
+Subject: [PATCH] Fix the autotools build: add i_log.c and i_vk_cache.c to
+ Makefile.am
+
+The "Continuous Integration" workflow (autotools: Linux GCC, both
+macOS Clang jobs, MSYS2 UCRT64) has been red since the gpu-scaler.log
+batch: i_log.c and i_vk_cache.c were added to the CMake build only,
+and i_system.c's fatal-error hook and i_video.c's classic-fallback
+announcement call the log API unconditionally, so every autotools
+link failed with undefined I_LogMessage/I_LogPrintf.
+
+COMMON_SOURCE_FILES gains i_log.c/i_log.h (all binaries - the I_Error
+hook lives in COMMON via i_system.c) and the game files gain
+i_vk_cache.c/i_vk_cache.h, mirroring the CMake placement; without
+ENABLE_VK_SHADERS the autotools build compiles both as their no-op
+stubs.
+
+The mus2mid tool rule was a second casualty of the same omission: it
+compiles i_system.c directly. It gains i_log.c plus the m_config.c
+chain that pulls in, and its libraries now follow its sources on the
+link line - the old order (-lSDL2 before the objects) left upstream's
+own SDL calls in i_system.c unresolved, a latent bug the missing
+I_LogMessage had been hiding behind. make mus2mid links and runs
+again. (make midiread has a separate, pre-existing missing -I and
+stays broken, as upstream.)
+
+Verified by replicating the CI's Linux job locally: real SDL2 2.30.10
+built from source, autogen + make -j links all four games, setup and
+the dedicated server; make -C quickcheck check passes; chocolate-doom
+--version reports "Chocolate Doom VK 3.0.0".
+---
+ CHANGELOG.md    | 21 +++++++++++++++++++++
+ src/Makefile.am |  8 +++++---
+ 2 files changed, 26 insertions(+), 3 deletions(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 942f7874..5154945a 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -10,6 +10,27 @@ version `3.0.0`).
+ 
+ ## [Unreleased]
+ 
++### Fixed
++- The upstream "Continuous Integration" workflow (autotools) has been
++  red since the gpu-scaler.log batch: `i_log.c` and `i_vk_cache.c`
++  were added to the CMake build but never to `src/Makefile.am`, so
++  every autotools link — all four games, setup and the dedicated
++  server — failed with undefined `I_LogMessage`/`I_LogPrintf`/
++  `I_LogError` (`i_system.c`'s fatal-error hook and the classic-
++  fallback announcement in `i_video.c` call the log API
++  unconditionally, by design). Both modules now sit in the autotools
++  source lists, mirroring their CMake placement (`COMMON_SOURCE_FILES`
++  and the game files). The `mus2mid` tool rule was a second casualty of
++  the same omission (it compiles `i_system.c`, whose fatal-error hook
++  calls the log): it gained `i_log.c` plus the `m_config.c` chain that
++  pulls in, and its libraries now follow its sources on the link line
++  — the old order (`-lSDL2` before the objects) left upstream's own
++  SDL calls in `i_system.c` unresolved, a latent bug the missing
++  `I_LogMessage` had been hiding behind. `make mus2mid` links again.
++  The autotools build remains classic-renderer-only (`ENABLE_VK_SHADERS`
++  is a CMake-side option); it builds the log and cache modules as
++  their no-op stubs.
++
+ ## [v3] - 2026-10-21
+ 
+ The GPU-scaler maturity release: true 16:9, warm-start shader caching,
+diff --git a/src/Makefile.am b/src/Makefile.am
+index af72ee31..c8ad92f3 100644
+--- a/src/Makefile.am
++++ b/src/Makefile.am
+@@ -28,6 +28,7 @@ AM_CFLAGS = -I$(top_srcdir)/textscreen            \
+ 
+ COMMON_SOURCE_FILES=\
+ i_main.c                                   \
++i_log.c              i_log.h               \
+ i_system.c           i_system.h            \
+ m_argv.c             m_argv.h              \
+ m_misc.c             m_misc.h
+@@ -84,6 +85,7 @@ i_sound.c            i_sound.h             \
+ i_timer.c            i_timer.h             \
+ i_video.c            i_video.h             \
+ i_video_vk.c         i_video_vk.h          \
++i_vk_cache.c         i_vk_cache.h          \
+ i_videohr.c          i_videohr.h           \
+ i_winmusic.c                               \
+ midifallback.c       midifallback.h        \
+@@ -294,8 +296,8 @@ CLEANFILES = $(execgames_SCRIPTS) $(metainfo_DATA) $(app_DATA) $(screensaver_DAT
+ midiread : midifile.c
+ 	$(CC) -DTEST $(CFLAGS) @LDFLAGS@ midifile.c -o $@
+ 
+-MUS2MID_SRC_FILES = mus2mid.c memio.c z_native.c i_system.c m_argv.c m_misc.c
++MUS2MID_SRC_FILES = mus2mid.c memio.c z_native.c i_system.c i_log.c m_argv.c m_misc.c d_iwad.c deh_str.c m_config.c
+ mus2mid : $(MUS2MID_SRC_FILES)
+-	$(CC) -DSTANDALONE -I$(top_builddir) $(CFLAGS) @LDFLAGS@ \
+-              $(MUS2MID_SRC_FILES) -o $@
++	$(CC) -DSTANDALONE -I$(top_builddir) $(CFLAGS) \
++              $(MUS2MID_SRC_FILES) @LDFLAGS@ -o $@
+ 
+-- 
+2.47.3
+

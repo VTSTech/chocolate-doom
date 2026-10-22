@@ -10,6 +10,27 @@ version `3.0.0`).
 
 ## [Unreleased]
 
+### Fixed
+- The upstream "Continuous Integration" workflow (autotools) has been
+  red since the gpu-scaler.log batch: `i_log.c` and `i_vk_cache.c`
+  were added to the CMake build but never to `src/Makefile.am`, so
+  every autotools link — all four games, setup and the dedicated
+  server — failed with undefined `I_LogMessage`/`I_LogPrintf`/
+  `I_LogError` (`i_system.c`'s fatal-error hook and the classic-
+  fallback announcement in `i_video.c` call the log API
+  unconditionally, by design). Both modules now sit in the autotools
+  source lists, mirroring their CMake placement (`COMMON_SOURCE_FILES`
+  and the game files). The `mus2mid` tool rule was a second casualty of
+  the same omission (it compiles `i_system.c`, whose fatal-error hook
+  calls the log): it gained `i_log.c` plus the `m_config.c` chain that
+  pulls in, and its libraries now follow its sources on the link line
+  — the old order (`-lSDL2` before the objects) left upstream's own
+  SDL calls in `i_system.c` unresolved, a latent bug the missing
+  `I_LogMessage` had been hiding behind. `make mus2mid` links again.
+  The autotools build remains classic-renderer-only (`ENABLE_VK_SHADERS`
+  is a CMake-side option); it builds the log and cache modules as
+  their no-op stubs.
+
 ## [v3] - 2026-10-21
 
 The GPU-scaler maturity release: true 16:9, warm-start shader caching,
