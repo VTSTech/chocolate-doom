@@ -135,6 +135,13 @@ static int actualheight;
 // Smooth pixel scaling
 int smooth_pixel_scaling = true;
 
+// [CDVK] UI scale: size of the 2D overlay (in-game menus, sliders
+// and the status-bar HUD) in percent of the original artwork.  Valid
+// range 50-100, default 100 = pixel-identical with vanilla.  Bound to
+// the "ui_scale" config key by each game and the setup tool;
+// consumed by v_video.c (V_GetUIScale).
+int ui_scale = 100;
+
 // Force integer scales for resolution-independent rendering
 
 int integer_scaling = false;

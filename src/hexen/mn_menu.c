@@ -515,6 +515,8 @@ void MN_Drawer(void)
     MenuItem_t *item;
     const char *selName;
 
+    V_UIScaleOn();      // [CDVK] ui_scale: menus + messages
+
     if (MenuActive == false)
     {
         if (askforquit)
@@ -537,6 +539,7 @@ void MN_Drawer(void)
             }
             UpdateState |= I_FULLSCRN;
         }
+        V_UIScaleOff();    // [CDVK] ui_scale
         return;
     }
     else
@@ -545,6 +548,7 @@ void MN_Drawer(void)
         if (InfoType)
         {
             MN_DrawInfo();
+            V_UIScaleOff();    // [CDVK] ui_scale
             return;
         }
         if (screenblocks < 10)
@@ -572,6 +576,8 @@ void MN_Drawer(void)
         V_DrawPatch(x + SELECTOR_XOFFSET, y,
                     W_CacheLumpName(selName, PU_CACHE));
     }
+
+    V_UIScaleOff();    // [CDVK] ui_scale
 }
 
 //---------------------------------------------------------------------------

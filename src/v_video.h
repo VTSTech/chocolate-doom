@@ -54,6 +54,19 @@ void V_CopyRect(int srcx, int srcy, pixel_t *source,
                 int width, int height,
                 int destx, int desty);
 
+// [CDVK] UI scale: while a menu or the status-bar HUD is drawn, the
+// overlay artwork is blitted at this percentage of its original
+// size (nearest neighbour) into the same canvas.  100 = passthrough
+// (the unscaled code paths, pixel-identical with vanilla).
+int  V_GetUIScale(void);     // effective config value (50-100)
+int  V_UIScaleActive(void);  // scale currently in effect (100 = off)
+void V_UIScaleOn(void);     // menu/HUD drawer entry point
+void V_UIScaleOff(void);    // menu/HUD drawer exit point
+// Like V_CopyRect, but the source rect is sampled to a destination
+// of (width*pct, height*pct) at (destx, desty) scaled.
+void V_CopyRectScaled(int pct, int srcx, int srcy, pixel_t *source,
+                       int width, int height, int destx, int desty);
+
 void V_DrawPatch(int x, int y, patch_t *patch);
 void V_DrawPatchFlipped(int x, int y, patch_t *patch);
 void V_DrawTLPatch(int x, int y, patch_t *patch);

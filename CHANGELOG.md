@@ -21,6 +21,15 @@ values are computed exactly from the half-angle tangent).  In
   matches the rest of the options menu.  Saved as `fov` in the
   config file; purely a rendering change, so demos and network
   games are unaffected.
+- `ui_scale` config (50-100%, default 100 = vanilla size): the
+  in-game menus, sliders, cursors and the status-bar HUD can be
+  drawn smaller than the original artwork (nearest-neighbour
+  sampling into the same canvas; layout relationships are preserved
+  exactly, so the options menus stop running to the bottom edge of
+  the screen and the status bar takes up less room).  50, 75 and
+  100 give the crispest results.  Set it in the setup tool
+  (Display -> Advanced) or as `ui_scale` in the config file; at 100
+  the code paths are bit-identical to vanilla.
 
 ### Fixed
 - The upstream "Continuous Integration" workflow (autotools) has been
