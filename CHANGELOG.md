@@ -11,6 +11,30 @@ version `3.0.0`).
 ## [Unreleased]
 
 ### Added
+- ADVANCED options submenu in all four games, replacing the END GAME
+  row in the Options menu (F7 still ends the game, as before). The
+  FOV slider moved into it from the Options menu; labels for the new
+  rows are drawn with the small font scaled to the height of the M_*
+  patches, since no ADVANCED patch ships with the game WADs (same
+  technique the FOV row introduced).
+- SHADERS : ON/OFF toggle in the Options menu of all four games,
+  replacing Graphic Detail in doom and sitting where FOV was in
+  heretic/hexen/strife. Flipping it calls the new `I_ToggleShaders()`
+  in i_video.c: `usevulkan` flips and the graphics backend restarts —
+  with a preset configured the Vulkan presenter takes over the window,
+  otherwise (or on any failure) the classic SDL2 renderer returns.
+  Hotkeys: **Shift+F12** in all four games, plus **F5** in doom and
+  heretic (F5 was Graphic Detail there; Hexen keeps F5 = suicide and
+  Strife keeps F5 = auto-use-health, so they are menu-only for the
+  toggle). The ON/OFF value is live: ON while the Vulkan presenter
+  owns the window, OFF while the classic renderer does.
+- `I_ToggleShaders()` in i_video.c/i_video.h: guarded no-op before
+  I_InitGraphics and in screensaver mode; needs no buffer ownership
+  handling (the classic path draws into `screenbuffer->pixels`, the
+  Vulkan path mallocs its own buffer and frees it on shutdown). The
+  palette resets to PLAYPAL after a toggle until the game next changes
+  it.
+
 - In-game field-of-view slider in the Options menu of all four games
   (64-128 degrees, default 90 = vanilla).  The weapon sprite scales
   with the projection and stays anchored to the bottom of the view;
@@ -22,7 +46,16 @@ values are computed exactly from the half-angle tangent).  In
   config file; purely a rendering change, so demos and network
   games are unaffected.
 
+### Changed
+- Graphic Detail removed from the doom Options menu; the renderer is
+  locked to HIGH detail. `detailLevel` is forced back to 0 (HIGH)
+  after config load in doom — stale `detaillevel = 1` values in
+  existing configs are ignored and overwritten on the next save.
+  heretic/hexen/strife never bound `detaillevel`, so they were always
+  HIGH already.
+
 ### Fixed
+
 - The doc-cleanup batch expanded the TAB recipe prefixes in the root
   `Makefile.am` `INSTALL` rule to spaces (the same tooling failure mode
   as patches 0002/0004), so every autotools build died at parse time

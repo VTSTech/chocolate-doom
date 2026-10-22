@@ -35,6 +35,7 @@
 #include "i_system.h"
 #include "i_timer.h"
 #include "i_video.h"
+#include "i_video_vk.h"   // [CDVK] I_ToggleShaders / I_VK_Active
 #include "z_zone.h"
 #include "v_video.h"
 #include "w_wad.h"
@@ -177,6 +178,8 @@ void M_VoiceVol(int choice); // [STRIFE]
 void M_MusicVol(int choice);
 void M_SizeDisplay(int choice);
 void M_ChangeFOV(int choice);     // [CDVK] FOV
+void M_Advanced(int choice);      // [CDVK] ADVANCED submenu
+void M_ToggleShaders(int choice); // [CDVK] SHADERS ON/OFF
 void M_StartGame(int choice);
 void M_Sound(int choice);
 
@@ -193,6 +196,7 @@ void M_DrawReadThis3(void); // [STRIFE]
 void M_DrawNewGame(void);
 void M_DrawEpisode(void);
 void M_DrawOptions(void);
+void M_DrawAdvanced(void);        // [CDVK] ADVANCED submenu
 void M_DrawSound(void);
 void M_DrawLoad(void);
 void M_DrawSave(void);
@@ -318,10 +322,10 @@ menu_t  NewDef =
 enum
 {
     // haleyjd 08/28/10: [STRIFE] Removed messages, mouse sens., detail.
-    endgame,
+    advanced,                   // [CDVK] was endgame: ADVANCED submenu
     scrnsize,
     option_empty1,
-    fovitem,                    // [CDVK] FOV
+    shaders,                    // [CDVK] was fovitem (FOV moved to Advanced)
     option_empty2,
     soundvol,
     opt_end
@@ -330,10 +334,10 @@ enum
 menuitem_t OptionsMenu[]=
 {
     // haleyjd 08/28/10: [STRIFE] Removed messages, mouse sens., detail.
-    {1,"M_ENDGAM",	M_EndGame,'e'},
+    {1,"",		M_Advanced,'a'},	// [CDVK] ADVANCED (was End Game)
     {2,"M_SCRNSZ",	M_SizeDisplay,'s'},
     {-1,"",0,'\0'},
-    {2,"",		M_ChangeFOV,'f'},	// [CDVK] FOV
+    {1,"",		M_ToggleShaders,'h'},	// [CDVK] SHADERS (was FOV row)
     {-1,"",0,'\0'},
     {1,"M_SVOL",	M_Sound,'s'}
 };
@@ -344,6 +348,33 @@ menu_t  OptionsDef =
     &MainDef,
     OptionsMenu,
     M_DrawOptions,
+    60,37,
+    0
+};
+
+//
+// [CDVK] ADVANCED submenu (occupies the old End Game row): the FOV
+// slider moved here from the Options menu.
+//
+enum
+{
+    adv_fov,
+    adv_empty1,
+    adv_end
+} advanced_e;
+
+menuitem_t AdvancedMenu[]=
+{
+    {2,"",		M_ChangeFOV,'f'},	// [CDVK] FOV
+    {-1,"",0,'\0'}
+};
+
+menu_t  AdvancedDef =
+{
+    adv_end,
+    &OptionsDef,
+    AdvancedMenu,
+    M_DrawAdvanced,
     60,37,
     0
 };
@@ -1130,10 +1161,10 @@ char	msgNames[2][9]		= {"M_MSGOFF","M_MSGON"};
 
 void M_DrawOptions(void)
 {
-    char                fovvalue[8];     // [CDVK] FOV
+    int label_h, value_h;
 
     // haleyjd 08/27/10: [STRIFE] M_OPTTTL -> M_OPTION
-    V_DrawPatchDirect(108, 15, 
+    V_DrawPatchDirect(108, 15,
                       W_CacheLumpName(DEH_String("M_OPTION"), PU_CACHE));
 
     // haleyjd 08/26/10: [STRIFE] Removed messages, sensitivity, detail.
@@ -1141,36 +1172,82 @@ void M_DrawOptions(void)
     M_DrawThermo(OptionsDef.x,OptionsDef.y+LINEHEIGHT*(scrnsize+1),
                  9,screenSize);
 
-    // [CDVK] FOV: no M_FOV patch ships with strife1.wad, so the
-    // label is the small font scaled up to the height of the M_*
-    // menu patches (the stock font uses the same red ramp).  The
-    // value column uses the HIGH patch height when present (as in
-    // doom), else the label height.  Thermo on the empty row below,
-    // matching SCREEN SIZE.
-    {
-        int label_h, value_h;
+    // [CDVK] ADVANCED row (replaces End Game) and SHADERS row
+    // (replaces FOV, which moved to the ADVANCED submenu). No patches
+    // ship with strife1.wad, so the labels use the small font scaled
+    // to the height of the M_SVOL patch, and the value column the
+    // M_GDHIGH height when present (as in doom).
+    label_h = SHORT(((patch_t *) W_CacheLumpName(DEH_String("M_SVOL"),
+                                                PU_CACHE))->height);
+    if (W_CheckNumForName(DEH_String("M_GDHIGH")) > 0)
+        value_h = SHORT(((patch_t *) W_CacheLumpName(DEH_String("M_GDHIGH"),
+                                                    PU_CACHE))->height);
+    else
+        value_h = label_h;
 
-        label_h = SHORT(((patch_t *) W_CacheLumpName(DEH_String("M_SVOL"),
-                                                     PU_CACHE))->height);
-        if (W_CheckNumForName(DEH_String("M_GDHIGH")) > 0)
-            value_h = SHORT(((patch_t *) W_CacheLumpName(DEH_String("M_GDHIGH"),
-                                                        PU_CACHE))->height);
-        else
-            value_h = label_h;
-
-        M_DrawTextScaled(OptionsDef.x, OptionsDef.y+LINEHEIGHT*fovitem, "FOV",
-                         label_h);
-        M_snprintf(fovvalue, sizeof(fovvalue), "%d", fov);
-        M_DrawTextScaled(OptionsDef.x + 175, OptionsDef.y+LINEHEIGHT*fovitem,
-                         fovvalue, value_h);
-        M_DrawThermo(OptionsDef.x,OptionsDef.y+LINEHEIGHT*(fovitem+1),
-                     17,(fov-FOV_MIN)/4);
-    }
+    M_DrawTextScaled(OptionsDef.x, OptionsDef.y+LINEHEIGHT*advanced,
+                     "ADVANCED...", label_h);
+    M_DrawTextScaled(OptionsDef.x, OptionsDef.y+LINEHEIGHT*shaders,
+                     "SHADERS", label_h);
+    M_DrawTextScaled(OptionsDef.x + 175, OptionsDef.y+LINEHEIGHT*shaders,
+                     I_VK_Active() ? "ON" : "OFF", value_h);
 }
 
 void M_Options(int choice)
 {
     M_SetupNextMenu(&OptionsDef);
+}
+
+//
+// [CDVK] M_DrawAdvanced — ADVANCED submenu: the FOV row moved here
+// from the Options menu.
+//
+void M_DrawAdvanced(void)
+{
+    char    fovvalue[8];
+    int     label_h, value_h;
+
+    V_DrawPatchDirect(108, 15,
+                      W_CacheLumpName(DEH_String("M_OPTION"), PU_CACHE));
+
+    label_h = SHORT(((patch_t *) W_CacheLumpName(DEH_String("M_SVOL"),
+                                                PU_CACHE))->height);
+    if (W_CheckNumForName(DEH_String("M_GDHIGH")) > 0)
+        value_h = SHORT(((patch_t *) W_CacheLumpName(DEH_String("M_GDHIGH"),
+                                                    PU_CACHE))->height);
+    else
+        value_h = label_h;
+
+    M_DrawTextScaled(AdvancedDef.x, AdvancedDef.y+LINEHEIGHT*adv_fov,
+                     "FOV", label_h);
+    M_snprintf(fovvalue, sizeof(fovvalue), "%d", fov);
+    M_DrawTextScaled(AdvancedDef.x + 175, AdvancedDef.y+LINEHEIGHT*adv_fov,
+                     fovvalue, value_h);
+    M_DrawThermo(AdvancedDef.x, AdvancedDef.y+LINEHEIGHT*(adv_fov+1),
+                 17, (fov-FOV_MIN)/4);
+}
+
+//
+// [CDVK] Open the ADVANCED submenu (the old End Game row).
+//
+void M_Advanced(int choice)
+{
+    choice = 0;
+    M_SetupNextMenu(&AdvancedDef);
+}
+
+//
+// [CDVK] SHADERS ON/OFF (replaces the FOV row, which moved to the
+// ADVANCED submenu): flips usevulkan and restarts the video backend;
+// see I_ToggleShaders in i_video.c.
+//
+void M_ToggleShaders(int choice)
+{
+    choice = 0;
+    S_StartSound(NULL, sfx_swtchn);
+    I_ToggleShaders();
+    players[consoleplayer].message =
+        I_VK_Active() ? DEH_String("SHADERS ON") : DEH_String("SHADERS OFF");
 }
 
 //

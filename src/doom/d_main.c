@@ -1520,6 +1520,11 @@ void D_DoomMain (void)
     D_BindVariables();
     M_LoadDefaults();
 
+    // [CDVK] Graphic Detail is gone from the menus; the renderer is
+    // locked to HIGH (detaillevel = 0). Stale config values are
+    // ignored and overwritten on the next save.
+    detailLevel = 0;
+
     // Save configuration at exit.
     I_AtExit(M_SaveDefaults, false);
 

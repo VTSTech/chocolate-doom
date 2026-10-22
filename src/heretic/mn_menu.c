@@ -27,6 +27,8 @@
 #include "i_system.h"
 #include "i_timer.h"
 #include "i_swap.h"
+#include "i_video.h"
+#include "i_video_vk.h"   // [CDVK] I_ToggleShaders / I_VK_Active
 #include "m_controls.h"
 #include "m_misc.h"
 #include "p_local.h"
@@ -62,6 +64,7 @@ typedef enum
     MENU_EPISODE,
     MENU_SKILL,
     MENU_OPTIONS,
+    MENU_ADVANCED,
     MENU_OPTIONS2,
     MENU_FILES,
     MENU_LOAD,
@@ -102,6 +105,7 @@ static boolean SCSfxVolume(int option);
 static boolean SCMusicVolume(int option);
 static boolean SCScreenSize(int option);
 static boolean SCFov(int option);      // [CDVK] FOV
+static boolean SCToggleShaders(int option);   // [CDVK] SHADERS ON/OFF
 static boolean SCLoadGame(int option);
 static boolean SCSaveGame(int option);
 static boolean SCMessages(int option);
@@ -111,6 +115,7 @@ static void DrawMainMenu(void);
 static void DrawEpisodeMenu(void);
 static void DrawSkillMenu(void);
 static void DrawOptionsMenu(void);
+static void DrawAdvancedMenu(void);   // [CDVK] ADVANCED submenu
 static void DrawOptions2Menu(void);
 static void DrawFileSlots(Menu_t * menu);
 static void DrawFilesMenu(void);
@@ -248,13 +253,26 @@ static Menu_t SkillMenu = {
 };
 
 static MenuItem_t OptionsItems[] = {
-    {ITT_EFUNC, "END GAME", SCEndGame, 0, MENU_NONE},
+    {ITT_SETMENU, "ADVANCED...", NULL, 0, MENU_ADVANCED},  // [CDVK] was END GAME
     {ITT_EFUNC, "MESSAGES : ", SCMessages, 0, MENU_NONE},
     {ITT_LRFUNC, "MOUSE SENSITIVITY", SCMouseSensi, 0, MENU_NONE},
     {ITT_EMPTY, NULL, NULL, 0, MENU_NONE},
-    {ITT_LRFUNC, "FOV", SCFov, 0, MENU_NONE},      // [CDVK] FOV
+    {ITT_LRFUNC, "SHADERS : ", SCToggleShaders, 0, MENU_NONE},  // [CDVK] was FOV
     {ITT_EMPTY, NULL, NULL, 0, MENU_NONE},
     {ITT_SETMENU, "MORE...", NULL, 0, MENU_OPTIONS2}
+};
+
+static MenuItem_t AdvancedItems[] = {
+    {ITT_LRFUNC, "FOV", SCFov, 0, MENU_NONE},      // [CDVK] FOV (moved here)
+    {ITT_EMPTY, NULL, NULL, 0, MENU_NONE}
+};
+
+static Menu_t AdvancedMenu = {
+    88, 30,
+    DrawAdvancedMenu,
+    2, AdvancedItems,
+    0,
+    MENU_OPTIONS
 };
 
 static Menu_t OptionsMenu = {
@@ -287,6 +305,7 @@ static Menu_t *Menus[] = {
     &EpisodeMenu,
     &SkillMenu,
     &OptionsMenu,
+    &AdvancedMenu,
     &Options2Menu,
     &FilesMenu,
     &LoadMenu,
@@ -696,8 +715,6 @@ static void DrawFileSlots(Menu_t * menu)
 
 static void DrawOptionsMenu(void)
 {
-    char fovvalue[8];           // [CDVK] FOV
-
     if (messageson)
     {
         MN_DrTextB(DEH_String("ON"), 196, 50);
@@ -707,11 +724,28 @@ static void DrawOptionsMenu(void)
         MN_DrTextB(DEH_String("OFF"), 196, 50);
     }
     DrawSlider(&OptionsMenu, 3, 10, mouseSensitivity);
-    // [CDVK] FOV: value beside the label; slider on the empty row
-    // below it (same layout as MOUSE SENSITIVITY).
+    // [CDVK] SHADERS row (sits where FOV was; FOV moved to ADVANCED):
+    // ON while the Vulkan presenter owns the window, OFF otherwise.
+    MN_DrTextB(I_VK_Active() ? "ON" : "OFF",
+               196, OptionsMenu.y + 4 * ITEM_HEIGHT);
+}
+
+//---------------------------------------------------------------------------
+//
+// PROC DrawAdvancedMenu  [CDVK]
+//
+// FOV (moved from the Options menu): value beside the label, slider
+// on the empty row below it.
+//
+//---------------------------------------------------------------------------
+
+static void DrawAdvancedMenu(void)
+{
+    char fovvalue[8];           // [CDVK] FOV
+
     M_snprintf(fovvalue, sizeof(fovvalue), "%d", fov);
-    MN_DrTextB(fovvalue, 196, OptionsMenu.y + 4 * ITEM_HEIGHT);
-    DrawSlider(&OptionsMenu, 5, 17, (fov - FOV_MIN) / 4);
+    MN_DrTextB(fovvalue, 196, AdvancedMenu.y);
+    DrawSlider(&AdvancedMenu, 1, 17, (fov - FOV_MIN) / 4);
 }
 
 //---------------------------------------------------------------------------
@@ -1058,6 +1092,24 @@ static boolean SCScreenSize(int option)
         screenblocks--;
     }
     R_SetViewSize(screenblocks, detailLevel);
+    return true;
+}
+
+//---------------------------------------------------------------------------
+//
+// PROC SCToggleShaders  [CDVK]
+//
+// SHADERS ON/OFF (Options menu row, where FOV used to sit; FOV moved
+// to the ADVANCED submenu). Shift+F12 toggles in all games.
+//
+//---------------------------------------------------------------------------
+
+static boolean SCToggleShaders(int option)
+{
+    option = 0;
+    I_ToggleShaders();
+    P_SetMessage(&players[consoleplayer],
+                 I_VK_Active() ? "SHADERS ON" : "SHADERS OFF", true);
     return true;
 }
 
@@ -1442,9 +1494,9 @@ boolean MN_Responder(event_t * event)
             slottextloaded = false; //reload the slot text, when needed
             return true;
         }
-        else if (key == key_menu_detail)          // F5 (detail)
+        else if (key == key_menu_detail)          // [CDVK] F5: SHADERS
         {
-            // F5 isn't used in Heretic. (detail level)
+            SCToggleShaders(0);
             return true;
         }
         else if (key == key_menu_qsave)           // F6 (quicksave)
