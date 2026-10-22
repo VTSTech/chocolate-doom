@@ -60,9 +60,28 @@ values are computed exactly from the half-angle tangent).  In
   existing configs are ignored and overwritten on the next save.
   heretic/hexen/strife never bound `detaillevel`, so they were always
   HIGH already.
+- The FOV slider no longer scales the player sprite. The weapon keeps
+  its vanilla size at every field of view (64-128); only the view
+  frustum widens or narrows, which reads as the camera moving forward
+  or back rather than the gun growing and shrinking. The sky keeps its
+  projection-relative size via a new `skyiscale` (prboom-style) so
+  decoupling the weapon does not change the sky; heretic/hexen already
+  drew the sky from their own `skyiscale`.
 
 ### Fixed
 
+- Floors and ceilings no longer swim ("the floor textures are
+  moving/rotating") while moving or turning, and they now line up with
+  the walls at any FOV. Two defects in the flat mapping: the span
+  origin came from the 8192-entry fine tangent tables, so distant
+  floor texels jumped by up to a full texel or more every time the
+  view angle crossed a table step; and the per-row distance was built
+  from `viewwidth/2` instead of the FOV focal length, so at any
+  FOV other than 90 the floors were sampled at a different depth than
+  the walls show (up to ~73% too far at FOV 120). The span origin and
+  the per-row step are now derived from exact sin/cos/atan of the true
+  column ray (doubles, no table grid); at FOV 90 with 320x200 the
+  wall/sprite/sky rendering is untouched.
 - Toggling SHADERS quit the game instead of switching renderers.
   I_ShutdownGraphics() destroyed the window, renderer, textures and
   screen-buffer surfaces but left the file-scope pointers set, so the

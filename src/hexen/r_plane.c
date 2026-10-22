@@ -17,10 +17,14 @@
 
 // HEADER FILES ------------------------------------------------------------
 
+#include <math.h>
 #include "h2def.h"
 #include "i_system.h"
 #include "r_local.h"
 #include "p_spec.h"
+// [CDVK] angle_t (binary angular measure) -> radians, exact over the
+// full 32-bit range.  Used by the exact floor/ceiling span mapping.
+#define ANGTODBL(a) ((double)(a) * (0.017453292519943295 / 1073741824.0))
 
 
 // MACROS ------------------------------------------------------------------
@@ -134,8 +138,7 @@ void R_InitPlanes(void)
 
 void R_MapPlane(int y, int x1, int x2)
 {
-    angle_t angle;
-    fixed_t distance, length;
+    fixed_t distance;
     unsigned index;
 
 #ifdef RANGECHECK
@@ -159,10 +162,29 @@ void R_MapPlane(int y, int x1, int x2)
         ds_ystep = cachedystep[y];
     }
 
-    length = FixedMul(distance, distscale[x1]);
-    angle = (viewangle + xtoviewangle[x1]) >> ANGLETOFINESHIFT;
-    ds_xfrac = viewx + FixedMul(finecosine[angle], length);
-    ds_yfrac = -viewy - FixedMul(finesine[angle], length);
+    // [CDVK] exact span origin: trace the true ray of column x1 onto
+    // the plane instead of the 8192-entry fine tables.  The per-row
+    // step below is exact for planes, so the whole row maps exactly
+    // and floors/ceilings stop swimming when moving or turning.
+    {
+        double u = (double)(x1 - centerx) / (double)projection;
+        double ray = ANGTODBL(viewangle) - atan(u);
+        double len = (double)distance * sqrt(1.0 + u * u);
+        double xfrac = cos(ray) * len;
+        double yfrac = sin(ray) * len;
+
+        if (xfrac > 32767.0)
+            xfrac = 32767.0;
+        else if (xfrac < -32768.0)
+            xfrac = -32768.0;
+        if (yfrac > 32767.0)
+            yfrac = 32767.0;
+        else if (yfrac < -32768.0)
+            yfrac = -32768.0;
+
+        ds_xfrac = viewx + (fixed_t)(xfrac * 65536.0);
+        ds_yfrac = -viewy - (fixed_t)(yfrac * 65536.0);
+    }
 
     if (fixedcolormap)
     {
@@ -196,7 +218,6 @@ void R_MapPlane(int y, int x1, int x2)
 void R_ClearPlanes(void)
 {
     int i;
-    angle_t angle;
 
     // Opening / clipping determination
     for (i = 0; i < viewwidth; i++)
@@ -210,10 +231,13 @@ void R_ClearPlanes(void)
 
     // Texture calculation
     memset(cachedheight, 0, sizeof(cachedheight));
-    angle = (viewangle - ANG90) >> ANGLETOFINESHIFT;    // left to right mapping
-    // Scale will be unit scale at SCREENWIDTH/2 distance
-    basexscale = FixedDiv(finecosine[angle], centerxfrac);
-    baseyscale = -FixedDiv(finesine[angle], centerxfrac);
+    // [CDVK] exact sin/cos of the view direction over the focal
+    // length, instead of the fine-table lookup over centerxfrac:
+    // floors and ceilings stop wobbling while turning (R_MapPlane).
+    basexscale = (fixed_t) (cos(ANGTODBL(viewangle - ANG90))
+                            * 4294967296.0 / projection);
+    baseyscale = -(fixed_t) (sin(ANGTODBL(viewangle - ANG90))
+                             * 4294967296.0 / projection);
 }
 
 //==========================================================================

@@ -753,14 +753,16 @@ void R_ExecuteSetViewSize (void)
     pspritescale = FRACUNIT*viewwidth/SCREENWIDTH;
     pspriteiscale = FRACUNIT*SCREENWIDTH/viewwidth;
 
-    // [CDVK] FOV: scale the weapon sprite with the projection zoom
-    // factor so it keeps its size relative to the world.
+    // [CDVK] FOV: the weapon keeps the vanilla scale at every field
+    // of view; only the view frustum changes.  The sky keeps its own
+    // scale so it still shrinks with the projection (prboom-style
+    // skyiscale), decoupled from the weapon.
+    skyiscale = pspriteiscale;
     if (projection != centerxfrac)
     {
 	fixed_t		fovscale = FixedDiv (projection, centerxfrac);
 
-	pspritescale = FixedMul (pspritescale, fovscale);
-	pspriteiscale = FixedDiv (pspriteiscale, fovscale);
+	skyiscale = FixedDiv (skyiscale, fovscale);
     }
     
     // thing clipping
@@ -773,7 +775,7 @@ void R_ExecuteSetViewSize (void)
 	// haleyjd 20120208: [STRIFE] viewheight/2 -> centery, accounts for up/down look
         dy = ((i - centery)<<FRACBITS) + FRACUNIT/2;
 	dy = abs(dy);
-	yslope[i] = FixedDiv ( (viewwidth<<detailshift)/2*FRACUNIT, dy);
+	yslope[i] = FixedDiv (projection<<detailshift, dy);
     }
 	
     for (i=0 ; i<viewwidth ; i++)
@@ -900,7 +902,7 @@ void R_SetupPitch(player_t* player)
 
         for(i = 0; i < viewheight; i++)
         {
-            yslope[i] = FixedDiv(viewwidth / 2 * FRACUNIT,
+            yslope[i] = FixedDiv(projection,
                                  abs(((i - centery) << FRACBITS) + (FRACUNIT/2)));
         }
     }
