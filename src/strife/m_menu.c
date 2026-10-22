@@ -204,7 +204,7 @@ void M_DrawSave(void);
 void M_DrawSaveLoadBorder(int x,int y);
 void M_SetupNextMenu(menu_t *menudef);
 void M_DrawThermo(int x,int y,int thermWidth,int thermDot);
-static void M_DrawTextScaled(int x, int y, const char *string, int height);  // [CDVK] FOV
+static void M_DrawTextScaled(int x, int y, const char *string, patch_t *refpatch);  // [CDVK] FOV
 void M_DrawEmptyCell(menu_t *menu,int item);
 void M_DrawSelCell(menu_t *menu,int item);
 int  M_StringWidth(const char *string);
@@ -1161,7 +1161,8 @@ char	msgNames[2][9]		= {"M_MSGOFF","M_MSGON"};
 
 void M_DrawOptions(void)
 {
-    int label_h, value_h;
+    patch_t *label;
+    patch_t *value;
 
     // haleyjd 08/27/10: [STRIFE] M_OPTTTL -> M_OPTION
     V_DrawPatchDirect(108, 15,
@@ -1172,62 +1173,59 @@ void M_DrawOptions(void)
     M_DrawThermo(OptionsDef.x,OptionsDef.y+LINEHEIGHT*(scrnsize+1),
                  9,screenSize);
 
-    // [CDVK] ADVANCED row (replaces End Game) and SHADERS row
-    // (replaces FOV, which moved to the ADVANCED submenu). No patches
-    // ship with strife1.wad, so the labels use the small font scaled
-    // to the height of the M_SVOL patch, and the value column the
-    // M_GDHIGH height when present (as in doom).
-    label_h = SHORT(((patch_t *) W_CacheLumpName(DEH_String("M_SVOL"),
-                                                PU_CACHE))->height);
+    // [CDVK] ADVANCED row (replaces End Game) and SHADERS row (replaces
+    // FOV, which moved to the ADVANCED submenu). No label patches ship
+    // with strife1.wad, so M_DrawTextScaled draws them with the HU font
+    // uniformly scaled to the ink height of the M_SVOL patch, and the
+    // value column to M_GDHIGH when strife1.wad has it (as in doom).
+    label = W_CacheLumpName(DEH_String("M_SVOL"), PU_CACHE);
     if (W_CheckNumForName(DEH_String("M_GDHIGH")) > 0)
-        value_h = SHORT(((patch_t *) W_CacheLumpName(DEH_String("M_GDHIGH"),
-                                                    PU_CACHE))->height);
+        value = W_CacheLumpName(DEH_String("M_GDHIGH"), PU_CACHE);
     else
-        value_h = label_h;
+        value = label;
 
     M_DrawTextScaled(OptionsDef.x, OptionsDef.y+LINEHEIGHT*advanced,
-                     "ADVANCED...", label_h);
+                     "ADVANCED...", label);
     M_DrawTextScaled(OptionsDef.x, OptionsDef.y+LINEHEIGHT*shaders,
-                     "SHADERS", label_h);
+                     "SHADERS", label);
     M_DrawTextScaled(OptionsDef.x + 175, OptionsDef.y+LINEHEIGHT*shaders,
-                     I_VK_Active() ? "ON" : "OFF", value_h);
+                     I_VK_Active() ? "ON" : "OFF", value);
 }
-
 void M_Options(int choice)
 {
     M_SetupNextMenu(&OptionsDef);
 }
 
 //
-// [CDVK] M_DrawAdvanced — ADVANCED submenu: the FOV row moved here
-// from the Options menu.
+//
+// [CDVK] M_DrawAdvanced - ADVANCED submenu: the FOV row moved here
+// from the Options menu.  Label and value are drawn with the HU font
+// uniformly scaled to the ink height of the M_SVOL / M_GDHIGH patches
+// (as in the Options menu), thermo on the empty row below.
 //
 void M_DrawAdvanced(void)
 {
     char    fovvalue[8];
-    int     label_h, value_h;
+    patch_t *label;
+    patch_t *value;
 
     V_DrawPatchDirect(108, 15,
                       W_CacheLumpName(DEH_String("M_OPTION"), PU_CACHE));
 
-    label_h = SHORT(((patch_t *) W_CacheLumpName(DEH_String("M_SVOL"),
-                                                PU_CACHE))->height);
+    label = W_CacheLumpName(DEH_String("M_SVOL"), PU_CACHE);
     if (W_CheckNumForName(DEH_String("M_GDHIGH")) > 0)
-        value_h = SHORT(((patch_t *) W_CacheLumpName(DEH_String("M_GDHIGH"),
-                                                    PU_CACHE))->height);
+        value = W_CacheLumpName(DEH_String("M_GDHIGH"), PU_CACHE);
     else
-        value_h = label_h;
+        value = label;
 
     M_DrawTextScaled(AdvancedDef.x, AdvancedDef.y+LINEHEIGHT*adv_fov,
-                     "FOV", label_h);
+                     "FOV", label);
     M_snprintf(fovvalue, sizeof(fovvalue), "%d", fov);
     M_DrawTextScaled(AdvancedDef.x + 175, AdvancedDef.y+LINEHEIGHT*adv_fov,
-                     fovvalue, value_h);
+                     fovvalue, value);
     M_DrawThermo(AdvancedDef.x, AdvancedDef.y+LINEHEIGHT*(adv_fov+1),
                  17, (fov-FOV_MIN)/4);
 }
-
-//
 // [CDVK] Open the ADVANCED submenu (the old End Game row).
 //
 void M_Advanced(int choice)
@@ -1725,41 +1723,149 @@ M_WriteText
 }
 
 //
-// [CDVK] FOV: M_DrawTextScaled - draw hu_font text scaled to `height`
-// pixels tall (nearest neighbour).  Used for the FOV row: no M_FOV
-// patch ships with the game WADs, so the label is the small font
-// scaled to the height of the M_* menu patches - the stock font uses
-// the same red ramp, so the row matches the rest of the options menu.
-// Glyph pixels are read exactly like V_DrawPatch does; the result is
-// written straight into I_VideoBuffer with bounds checks.
 //
+// [CDVK] M_DrawTextScaled - draw hu_font text sized to the M_* menu
+// patches.  No menu patches exist for the ADVANCED / SHADERS / FOV
+// labels, so they are drawn with the HU font (same red ramp as the
+// stock menu font), scaled uniformly so the caps' visible ink height
+// matches the ink of a reference patch: the ratio
+// ref_ink_height / cap_ink_height is applied to every glyph, which
+// preserves glyph shapes (a period stays a dot, not a stretched
+// block) and keeps the labels exactly as tall as the neighbouring
+// patch text.  Each glyph's ink is bottom-aligned to the cap
+// baseline, so punctuation sits on the baseline.  Glyph pixels are
+// read exactly like V_DrawPatch does; the result is written straight
+// into I_VideoBuffer with bounds checks.
+//
+
+// Extent of the opaque pixels of a patch: the lowest topdelta and the
+// highest topdelta+length over all posts in all columns.
+static void M_PatchInkExtent(patch_t *patch, int *top, int *bottom)
+{
+    int c;
+    int min_td = 0;
+    int max_end = 0;
+    int have = 0;
+
+    for (c = 0; c < SHORT(patch->width); c++)
+    {
+        column_t *column;
+        column_t *post;
+
+        column = (column_t *)((byte *)patch + LONG(patch->columnofs[c]));
+        post = column;
+        while (post->topdelta != 0xff)
+        {
+            if (!have || post->topdelta < min_td)
+            {
+                min_td = post->topdelta;
+            }
+            if (!have || post->topdelta + post->length > max_end)
+            {
+                max_end = post->topdelta + post->length;
+            }
+            have = 1;
+            post = (column_t *)((byte *)post + post->length + 4);
+        }
+    }
+
+    if (!have)
+    {
+        min_td = 0;
+        max_end = SHORT(patch->height);
+    }
+
+    *top = min_td;
+    *bottom = max_end;
+}
+
+// Uniform scale ratio for M_DrawTextScaled, as num/den: the ink
+// height of refpatch over the cap ink height of the HU font (the 'A'
+// glyph; every capital and digit shares it).  Measured rather than
+// hardcoded, so modded fonts stay consistent.
+static void M_TextScaledRatio(patch_t *refpatch, int *num, int *den)
+{
+    static int cap_top = -1;
+    static int cap_bottom;
+    int ref_top;
+    int ref_bottom;
+
+    if (cap_top < 0)
+    {
+        patch_t *cap = hu_font['A' - HU_FONTSTART];
+
+        if (cap != NULL)
+        {
+            M_PatchInkExtent(cap, &cap_top, &cap_bottom);
+        }
+        if (cap == NULL || cap_bottom <= cap_top)
+        {
+            cap_top = 0;
+            cap_bottom = 8;
+        }
+    }
+
+    M_PatchInkExtent(refpatch, &ref_top, &ref_bottom);
+
+    *num = ref_bottom - ref_top;
+    *den = cap_bottom - cap_top;
+
+    if (*num < 1)
+    {
+        *num = 1;
+    }
+    if (*den < 1)
+    {
+        *den = 1;
+    }
+}
+
 static void
 M_DrawTextScaled
 ( int           x,
   int           y,
   const char    *string,
-  int           height )
+  patch_t       *refpatch )
 {
     const char  *ch;
     int         c;
     int         cx;
+    int         num, den;
+    int         ref_top, ref_bottom;
+    int         baseline;
+    int         gy;
     int         dx, dy;
     int         sx, sy;
-    int         sw, sh, dw;
+    int         sw, sh, dw, dh;
     int         px;
+    int         g_top, g_bottom;
+    int         row_min = SCREENHEIGHT;
+    int         row_max = -1;
     patch_t     *glyph;
     column_t    *column;
     column_t    *post;
 
-    if (height < 1)
+    if (refpatch == NULL)
+    {
         return;
+    }
+
+    M_TextScaledRatio(refpatch, &num, &den);
+    M_PatchInkExtent(refpatch, &ref_top, &ref_bottom);
+
+    // The HU font draws every glyph from the same top line (caps are
+    // ink-aligned to it), so scaling the glyph boxes uniformly and
+    // bottom-aligning each glyph's ink to the cap baseline keeps the
+    // letters aligned with each other and puts punctuation on the
+    // baseline.  The scaled cap ink height is exactly num.
+    baseline = y + ref_top + num;
 
     cx = x;
 
     for (ch = string; *ch; )
     {
         c = toupper(*ch++) - HU_FONTSTART;
-        if (c < 0 || c >= HU_FONTSIZE)
+        if (c < 0 || c >= HU_FONTSIZE || hu_font[c] == NULL)
         {
             cx += 4;            // like M_WriteText
             continue;
@@ -1768,18 +1874,24 @@ M_DrawTextScaled
         glyph = hu_font[c];
         sw = SHORT(glyph->width);
         sh = SHORT(glyph->height);
-        dw = sw*height/sh;
+        dw = (sw*num + den/2) / den;
+        dh = (sh*num + den/2) / den;
         if (dw < 1)
             dw = 1;
+        if (dh < 1)
+            dh = 1;
+
+        M_PatchInkExtent(glyph, &g_top, &g_bottom);
+        gy = baseline - ((g_bottom*num + den/2) / den);
 
         for (dx = 0; dx < dw; dx++)
         {
             sx = dx*sw/dw;
             column = (column_t *)((byte *)glyph + LONG(glyph->columnofs[sx]));
 
-            for (dy = 0; dy < height; dy++)
+            for (dy = 0; dy < dh; dy++)
             {
-                sy = dy*sh/height;
+                sy = dy*sh/dh;
 
                 // step through the posts in the column (as V_DrawPatch)
                 // and find the pixel at row sy of column sx.
@@ -1799,17 +1911,24 @@ M_DrawTextScaled
                     continue;
 
                 if (cx+dx >= 0 && cx+dx < SCREENWIDTH
-                    && y+dy >= 0 && y+dy < SCREENHEIGHT)
-                    I_VideoBuffer[(y+dy)*SCREENWIDTH + cx+dx] = (pixel_t)px;
+                    && gy+dy >= 0 && gy+dy < SCREENHEIGHT)
+                {
+                    I_VideoBuffer[(gy+dy)*SCREENWIDTH + cx+dx] = (pixel_t)px;
+                    if (gy+dy < row_min)
+                        row_min = gy+dy;
+                    if (gy+dy > row_max)
+                        row_max = gy+dy;
+                }
             }
         }
         cx += dw + 1;
     }
 
-    V_MarkRect(x, y, cx > x ? cx - x : 1, height);
+    if (row_max >= 0)
+    {
+        V_MarkRect(x, row_min, cx > x ? cx - x : 1, row_max - row_min + 1);
+    }
 }
-
-//
 // M_DialogDimMsg
 //
 // [STRIFE] New function

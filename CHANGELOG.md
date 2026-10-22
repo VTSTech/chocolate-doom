@@ -47,6 +47,13 @@ values are computed exactly from the half-angle tangent).  In
   games are unaffected.
 
 ### Changed
+- README description rewritten: the fork no longer bills itself as
+  aiming to "accurately reproduce" the original DOS versions — it now
+  aims to "upgrade and enhance" them to a form that runs on modern
+  computers with Vulkan GPU rendering, every frame passing through a
+  libretro slang shader preset (.slangp / .slang) via libslang-vk, and
+  lists FOV and widescreen upscaling support among its other
+  improvements.
 - Graphic Detail removed from the doom Options menu; the renderer is
   locked to HIGH detail. `detailLevel` is forced back to 0 (HIGH)
   after config load in doom — stale `detaillevel = 1` values in
@@ -56,6 +63,25 @@ values are computed exactly from the half-angle tangent).  In
 
 ### Fixed
 
+- Toggling SHADERS quit the game instead of switching renderers.
+  I_ShutdownGraphics() destroyed the window, renderer, textures and
+  screen-buffer surfaces but left the file-scope pointers set, so the
+  next I_InitGraphics() skipped SDL_CreateWindow (SetVideoMode() only
+  creates the window when `screen == NULL`), built a renderer against
+  the destroyed window — I_Error, game over — and re-freed
+  screenbuffer/argbbuffer through their `!= NULL` re-init guards. All
+  torn-down objects are now reset to NULL, and both restart directions
+  (classic renderer -> Vulkan presenter and back) rebuild cleanly.
+- The doom/strife menu labels ("ADVANCED...", "SHADERS", "FOV") were
+  drawn by stretching every HU-font glyph to the full 15px box of the
+  M_SVOL title patch: visibly taller than the 12px item patches around
+  them, and the 4x3 period glyph became a 21x16 solid block that read
+  as "ADVANCED---". M_DrawTextScaled now scales uniformly to a
+  reference patch's visible ink height (M_MSGOFF for rows, M_OPTTTL
+  for the submenu title, M_GDHIGH for values), preserves glyph aspect
+  ratios, and aligns punctuation to the cap baseline — the dots are
+  dots again, and the ADVANCED submenu title is centered like the
+  OPTIONS title.
 - The doc-cleanup batch expanded the TAB recipe prefixes in the root
   `Makefile.am` `INSTALL` rule to spaces (the same tooling failure mode
   as patches 0002/0004), so every autotools build died at parse time

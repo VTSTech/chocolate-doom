@@ -293,6 +293,20 @@ void I_ShutdownGraphics(void)
         }
         SDL_DestroyWindow(screen);
         SDL_QuitSubSystem(SDL_INIT_VIDEO);
+        // [CDVK] I_ToggleShaders() restarts the video backend at runtime
+        // (SHADERS ON/OFF menu item and hotkeys). Leave nothing dangling:
+        // SetVideoMode() only creates the window when screen == NULL, the
+        // surface/texture paths re-free through the != NULL guards, and
+        // CreateVKWindow() assigns a fresh window. Destroyed-but-still-set
+        // pointers made the next I_InitGraphics() build a renderer against
+        // the dead window (I_Error -> the game quit on toggle) and
+        // double-free the screen buffers.
+        renderer = NULL;
+        texture = NULL;
+        texture_upscaled = NULL;
+        argbbuffer = NULL;
+        screenbuffer = NULL;
+        screen = NULL;
 
         initialized = false;
     }
