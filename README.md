@@ -2,11 +2,13 @@
 
 Chocolate Doom VK is a fork of
 [Chocolate Doom](https://github.com/chocolate-doom/chocolate-doom) that
-aims to accurately reproduce the original DOS version of Doom and other
-games based on the Doom engine in a form that can be run on modern
-computers — and runs every frame of the game through a **libretro slang
-shader preset** (`.slangp` / `.slang`) using Vulkan, via
-[VTSTech/libslang-vk](https://github.com/VTSTech/libslang-vk).
+aims to upgrade and enhance the original DOS version of Doom and other
+games based on the Doom engine to a form that can be run on modern
+computers with Vulkan GPU rendering and every frame of the game passing
+through a **libretro slang shader preset** (`.slangp` / `.slang`) via
+VTSTech's [libslang-vk](https://github.com/VTSTech/libslang-vk) C
+Library. Other improvements include FOV and widescreen upscaling
+support.
 
 CRT scanlines, LCD grids, phosphor decay, bezels — the same
 post-processing ecosystem emulators use, applied to the original 1993
