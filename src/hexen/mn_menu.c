@@ -42,7 +42,7 @@
 #define ITEM_HEIGHT 20
 #define SELECTOR_XOFFSET (-28)
 #define SELECTOR_YOFFSET (-1)
-#define SLOTTEXTLEN	16
+#define SLOTTEXTLEN     16
 #define ASCII_CURSOR '['
 
 // TYPES -------------------------------------------------------------------
@@ -780,7 +780,7 @@ static void DrawOptionsMenu(void)
     // below it (same layout as MOUSE SENSITIVITY).
     M_snprintf(fovvalue, sizeof(fovvalue), "%d", fov);
     MN_DrTextB(fovvalue, 196, OptionsMenu.y + 4 * ITEM_HEIGHT);
-    DrawSlider(&OptionsMenu, 5, 11, (fov - FOV_MIN) / 5);
+    DrawSlider(&OptionsMenu, 5, 17, (fov - FOV_MIN) / 4);
 }
 
 //---------------------------------------------------------------------------
@@ -1180,12 +1180,16 @@ static void SCFov(int option)
     {
         if (fov < FOV_MAX)
         {
-            fov++;
+            fov += 2;
+            if (fov > FOV_MAX)     // hand-edited config value
+                fov = FOV_MAX;
         }
     }
     else if (fov > FOV_MIN)
     {
-        fov--;
+        fov -= 2;
+        if (fov < FOV_MIN)         // hand-edited config value
+            fov = FOV_MIN;
     }
     R_SetViewSize(screenblocks, detailLevel);
 }

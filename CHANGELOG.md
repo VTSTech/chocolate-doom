@@ -12,11 +12,15 @@ version `3.0.0`).
 
 ### Added
 - In-game field-of-view slider in the Options menu of all four games
-  (60-110 degrees, default 90 = vanilla).  The weapon sprite scales
+  (64-128 degrees, default 90 = vanilla).  The weapon sprite scales
   with the projection and stays anchored to the bottom of the view;
-  at 90 degrees the code paths are bit-identical to vanilla.  Saved
-  as `fov` in the config file; purely a rendering change, so demos
-  and network games are unaffected.
+  at 90 degrees the code paths are bit-identical to vanilla (non-default
+values are computed exactly from the half-angle tangent).  In
+  doom and strife the label and value are drawn with the small font
+  scaled up to the height of the other menu rows, so the FOV row
+  matches the rest of the options menu.  Saved as `fov` in the
+  config file; purely a rendering change, so demos and network
+  games are unaffected.
 
 ### Fixed
 - The upstream "Continuous Integration" workflow (autotools) has been

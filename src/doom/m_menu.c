@@ -212,6 +212,7 @@ static void M_DrawSaveLoadBorder(int x,int y);
 static void M_SetupNextMenu(menu_t *menudef);
 static void M_DrawThermo(int x,int y,int thermWidth,int thermDot);
 static void M_WriteText(int x, int y, const char *string);
+static void M_DrawTextScaled(int x, int y, const char *string, int height);    // [CDVK] FOV
 static int  M_StringWidth(const char *string);
 static int  M_StringHeight(const char *string);
 static void M_StartMessage(const char *string, void *routine, boolean input);
@@ -986,14 +987,22 @@ void M_DrawOptions(void)
 		 9,screenSize);
 
     // [CDVK] FOV: no M_FOV patch ships with the game WADs, so the
-    // label and value are drawn with the small font; thermo on the
-    // empty row below, matching SCREEN SIZE / MOUSE SENS.
-    M_WriteText(OptionsDef.x, OptionsDef.y+LINEHEIGHT*fovitem+4, "FOV");
+    // label is the small font scaled up to the height of the M_*
+    // menu patches (the stock font uses the same red ramp), taken
+    // from lumps that are always present - the SOUND row for the
+    // label, the HIGH/LOW patch for the value - so the FOV row
+    // matches the rest of the menu.  Thermo on the empty row below,
+    // matching SCREEN SIZE / MOUSE SENS.
+    M_DrawTextScaled(OptionsDef.x, OptionsDef.y+LINEHEIGHT*fovitem, "FOV",
+        SHORT(((patch_t *) W_CacheLumpName(DEH_String("M_SVOL"),
+                                          PU_CACHE))->height));
     M_snprintf(fovvalue, sizeof(fovvalue), "%d", fov);
-    M_WriteText(OptionsDef.x + 175, OptionsDef.y+LINEHEIGHT*fovitem+4,
-                fovvalue);
+    M_DrawTextScaled(OptionsDef.x + 175, OptionsDef.y+LINEHEIGHT*fovitem,
+                fovvalue,
+                SHORT(((patch_t *) W_CacheLumpName(DEH_String("M_GDHIGH"),
+                                                  PU_CACHE))->height));
     M_DrawThermo(OptionsDef.x,OptionsDef.y+LINEHEIGHT*(fovitem+1),
-		 11,(fov-FOV_MIN)/5);
+		 17,(fov-FOV_MIN)/4);
 }
 
 void M_Options(int choice)
@@ -1180,11 +1189,19 @@ void M_ChangeFOV(int choice)
     {
       case 0:
 	if (fov > FOV_MIN)
-	    fov--;
+	{
+	    fov -= 2;
+	    if (fov < FOV_MIN)		// hand-edited config value
+		fov = FOV_MIN;
+	}
 	break;
       case 1:
 	if (fov < FOV_MAX)
-	    fov++;
+	{
+	    fov += 2;
+	    if (fov > FOV_MAX)		// hand-edited config value
+		fov = FOV_MAX;
+	}
 	break;
     }
 
@@ -1367,6 +1384,91 @@ M_WriteText
 	V_DrawPatchDirect(cx, cy, hu_font[c]);
 	cx+=w;
     }
+}
+
+//
+// [CDVK] FOV: M_DrawTextScaled - draw hu_font text scaled to `height`
+// pixels tall (nearest neighbour).  Used for the FOV row: no M_FOV
+// patch ships with the game WADs, so the label is the small font
+// scaled to the height of the M_* menu patches - the stock font uses
+// the same red ramp, so the row matches the rest of the options menu.
+// Glyph pixels are read exactly like V_DrawPatch does; the result is
+// written straight into I_VideoBuffer with bounds checks.
+//
+static void
+M_DrawTextScaled
+( int           x,
+  int           y,
+  const char    *string,
+  int           height )
+{
+    const char  *ch;
+    int         c;
+    int         cx;
+    int         dx, dy;
+    int         sx, sy;
+    int         sw, sh, dw;
+    int         px;
+    patch_t     *glyph;
+    column_t    *column;
+    column_t    *post;
+
+    if (height < 1)
+        return;
+
+    cx = x;
+
+    for (ch = string; *ch; )
+    {
+        c = toupper(*ch++) - HU_FONTSTART;
+        if (c < 0 || c >= HU_FONTSIZE)
+        {
+            cx += 4;            // like M_WriteText
+            continue;
+        }
+
+        glyph = hu_font[c];
+        sw = SHORT(glyph->width);
+        sh = SHORT(glyph->height);
+        dw = sw*height/sh;
+        if (dw < 1)
+            dw = 1;
+
+        for (dx = 0; dx < dw; dx++)
+        {
+            sx = dx*sw/dw;
+            column = (column_t *)((byte *)glyph + LONG(glyph->columnofs[sx]));
+
+            for (dy = 0; dy < height; dy++)
+            {
+                sy = dy*sh/height;
+
+                // step through the posts in the column (as V_DrawPatch)
+                // and find the pixel at row sy of column sx.
+                px = -1;
+                post = column;
+                while (post->topdelta != 0xff)
+                {
+                    if (sy >= post->topdelta
+                        && sy < post->topdelta + post->length)
+                    {
+                        px = ((byte *)post + 3)[sy - post->topdelta];
+                        break;
+                    }
+                    post = (column_t *)((byte *)post + post->length + 4);
+                }
+                if (px < 0)
+                    continue;
+
+                if (cx+dx >= 0 && cx+dx < SCREENWIDTH
+                    && y+dy >= 0 && y+dy < SCREENHEIGHT)
+                    I_VideoBuffer[(y+dy)*SCREENWIDTH + cx+dx] = (pixel_t)px;
+            }
+        }
+        cx += dw + 1;
+    }
+
+    V_MarkRect(x, y, cx > x ? cx - x : 1, height);
 }
 
 // These keys evaluate to a "null" key in Vanilla Doom that allows weird

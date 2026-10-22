@@ -527,7 +527,7 @@ static default_t        doom_defaults_list[] =
     //!
     // @game doom heretic hexen strife
     //
-    // Field of view, in degrees (horizontal).  Range 60-110.  The
+    // Field of view, in degrees (horizontal).  Range 64-128.  The
     // default of 90 matches the vanilla games; this only changes how
     // the world is rendered (gameplay, demos and netgames are not
     // affected).

@@ -435,10 +435,13 @@ void R_InitTextureMapping(void)
 
     // calc focallength so FIELDOFVIEW angles covers SCREENWIDTH
     // [CDVK] FOV: at the default FOV keep the original expression and
-    // projection untouched (bit-identical vanilla behavior).  Otherwise
-    // let fine angles matching the user's fov span SCREENWIDTH, and
-    // move the sprite projection with it (vanilla keeps projection at
-    // centerxfrac, which is only correct for 90 degrees).
+    // projection untouched (bit-identical vanilla behavior).
+    // Otherwise the half-angle tangent is computed directly: the old
+    // finetangent-table lookup truncated to the fine-angle grid
+    // (up to ~0.2 degrees off), while the direct tangent is exact
+    // at every value.  The sprite projection moves
+    // with it (vanilla keeps projection at centerxfrac, which is
+    // only correct for 90 degrees).
     if (fov == FOV_DEFAULT)
     {
         focallength =
@@ -446,10 +449,12 @@ void R_InitTextureMapping(void)
     }
     else
     {
-        int fovfine = fov * FIELDOFVIEW / 90 / 2;
+        fixed_t fovtan;
 
-        focallength =
-            FixedDiv(centerxfrac, finetangent[FINEANGLES / 4 + fovfine]);
+        fovtan = (fixed_t)(FRACUNIT * tan(fov / 2.0 * 0.017453292519943295));  // PI/180
+        if (fovtan < FRACUNIT / 4)
+            fovtan = FRACUNIT / 4;
+        focallength = FixedDiv(centerxfrac, fovtan);
         projection = focallength;
     }
 

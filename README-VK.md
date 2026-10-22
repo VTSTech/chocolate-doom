@@ -191,16 +191,25 @@ FOV — would mean engine-side renderer changes; see Known limitations.
 
 ## Field of view (FOV)
 
-The Options menu of each game has a FOV slider (60-110 degrees,
+The Options menu of each game has a FOV slider (64-128 degrees,
 default 90 = vanilla). The setting lives entirely in the software
 renderer's projection math (`R_InitTextureMapping`), so it behaves
 identically on the classic renderer and the Vulkan shader path - the
 frame feed is just scaled afterwards. At 90 degrees the code paths
-are bit-identical to vanilla; values outside 60-110 found in a
-config file are reset to 90 on the next view-size rebuild.
+are bit-identical to vanilla; values outside 64-128 found in a
+config file are reset to 90 on the next view-size rebuild. The
+non-default projection is computed directly from the half-angle
+tangent (the previous build derived it from the vanilla finetangent
+table, whose fine-angle grid truncated it by up to about 0.2
+degrees).
 
 Notes:
 
+- In doom and strife, whose options menus are built from lump
+  graphics, the FOV label and value are the small font scaled up to
+  the height of the other menu rows (the stock font uses the same
+  red ramp, so the row blends in). Heretic and hexen draw it with
+  the big menu font like every other row.
 - Horizontal and vertical field scale together (a plain zoom out or
   in); walls and sprites stay on a consistent projection, and the
   weapon sprite scales with the same factor while staying anchored
