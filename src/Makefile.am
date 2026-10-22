@@ -28,6 +28,7 @@ AM_CFLAGS = -I$(top_srcdir)/textscreen            \
 
 COMMON_SOURCE_FILES=\
 i_main.c                                   \
+i_log.c              i_log.h               \
 i_system.c           i_system.h            \
 m_argv.c             m_argv.h              \
 m_misc.c             m_misc.h
@@ -84,6 +85,7 @@ i_sound.c            i_sound.h             \
 i_timer.c            i_timer.h             \
 i_video.c            i_video.h             \
 i_video_vk.c         i_video_vk.h          \
+i_vk_cache.c         i_vk_cache.h          \
 i_videohr.c          i_videohr.h           \
 i_winmusic.c                               \
 midifallback.c       midifallback.h        \
@@ -294,8 +296,8 @@ CLEANFILES = $(execgames_SCRIPTS) $(metainfo_DATA) $(app_DATA) $(screensaver_DAT
 midiread : midifile.c
 	$(CC) -DTEST $(CFLAGS) @LDFLAGS@ midifile.c -o $@
 
-MUS2MID_SRC_FILES = mus2mid.c memio.c z_native.c i_system.c m_argv.c m_misc.c
+MUS2MID_SRC_FILES = mus2mid.c memio.c z_native.c i_system.c i_log.c m_argv.c m_misc.c d_iwad.c deh_str.c m_config.c
 mus2mid : $(MUS2MID_SRC_FILES)
-	$(CC) -DSTANDALONE -I$(top_builddir) $(CFLAGS) @LDFLAGS@ \
-              $(MUS2MID_SRC_FILES) -o $@
+	$(CC) -DSTANDALONE -I$(top_builddir) $(CFLAGS) \
+              $(MUS2MID_SRC_FILES) @LDFLAGS@ -o $@
 
