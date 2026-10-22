@@ -18,7 +18,7 @@ AC_ARG_ENABLE(
            [*emcc.py], [enable_emscripten="yes"],
            [*emcc], [enable_emscripten="yes"],
            [enable_emscripten="no"]
-          )
+	  )
  ]
 )
 

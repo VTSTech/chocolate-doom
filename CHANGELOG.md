@@ -23,6 +23,14 @@ values are computed exactly from the half-angle tangent).  In
   games are unaffected.
 
 ### Fixed
+- The doc-cleanup batch expanded the TAB recipe prefixes in the root
+  `Makefile.am` `INSTALL` rule to spaces (the same tooling failure mode
+  as patches 0002/0004), so every autotools build died at parse time
+  with GNU make's `Makefile:1000: *** missing separator (did you mean
+  TAB instead of 8 spaces?)`.  The recipe is restored byte-identical to
+  the upstream form (tab-prefixed first and last lines, space-indented
+  backslash continuations); verified with `autoreconf -fi` plus a
+  before/after `make -n` parse test of the generated rule.
 - The upstream "Continuous Integration" workflow (autotools) has been
   red since the gpu-scaler.log batch: `i_log.c` and `i_vk_cache.c`
   were added to the CMake build but never to `src/Makefile.am`, so

@@ -53,9 +53,9 @@ DIST_SUBDIRS=pkg $(SUBDIRS)
 if HAVE_DOC
 
 INSTALL : man/INSTALL.template man/simplecpp
-        $(srcdir)/man/simplecpp -DDOOM -DHERETIC -DHEXEN -DSTRIFE \
+	$(srcdir)/man/simplecpp -DDOOM -DHERETIC -DHEXEN -DSTRIFE \
             -DLONG_GAME_NAME="@PACKAGE_SHORTNAME@ Doom" \
             -DLONG_EXE_NAME="@PROGRAM_PREFIX@doom" \
-                        < $(srcdir)/man/INSTALL.template > $@
+	                < $(srcdir)/man/INSTALL.template > $@
 
 endif
