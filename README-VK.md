@@ -58,10 +58,15 @@ them (plus Strife). On Windows, MSYS2/MinGW and MSVC (vcpkg manifest) are
 wired up in `.github/workflows/vk-shaders.yml`.
 
 The library is linked as a **shared** artifact: `libslang-vk.dll` on
-Windows, `libslang-vk.so` / `libslang-vk.dylib` elsewhere, copied next
-to every game executable at build time — so the build tree runs out of
-the box, the executables stay small, and the shader library can be
-swapped or updated without relinking all four games. On Windows the
+Windows — identically named on MSVC and MinGW (the target pins an
+empty prefix; MinGW's toolchain default would double it into
+`liblibslang-vk.dll`) — and `libslang-vk.so` / `libslang-vk.dylib`
+elsewhere. A single `slangvk-runtime` copy step puts it next to the
+game executables at build time — one command for every game, not one
+per game, which raced on the same destination under parallel MSVC
+links — so the build tree runs out of the box, the executables stay
+small, and the shader library can be swapped or updated without
+relinking all four games. On Windows the
 exports come from `cmake/libslang-vk-c-api.def` (the upstream C surface
 carries no annotation, so the DLL would otherwise export nothing); keep
 that file in sync when bumping the pin — a missing name is a link error,
@@ -420,6 +425,20 @@ throughout.
   `.def` export list is cross-checked 1:1 against the pinned `c.h` (27
   symbols, exact match); MSVC/MinGW link behavior with a .def is
   standard toolchain behavior not re-tested here.
+- DLL deployment + CI packaging fix (v0.4.1): the four per-game
+  POST_BUILD copies raced under parallel links (intermittent
+  `open_for_read` "permission denied" — a Windows sharing violation —
+  on the MSVC runner); replaced by one `slangvk-runtime` copy step the
+  game targets depend on. Verified on Linux: full re-configure and
+  generate for both `ENABLE_VK_SHADERS` settings, the generated build
+  graph carries exactly one copy command with the intended ordering
+  (after `slangvk-shared` and the destination anchor, before every game
+  link), and executing the recorded copy command produces a
+  byte-identical, idempotent deployment. MinGW builds now name the DLL
+  `libslang-vk.dll` like MSVC (empty prefix; was the double-prefixed
+  `liblibslang-vk.dll`). Both Windows packaging steps copy the DLL
+  into the artifact zips and fail the job when it is absent; the
+  MSYS2/MSVC runs themselves execute on GitHub's runners.
 - Not yet automated: interactive window resize / fullscreen-toggle
   swapchain recreation (exercised by design; mirrors the reference host's
   recreate logic — please report anything odd on real hardware).

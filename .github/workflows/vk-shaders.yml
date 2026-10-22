@@ -122,6 +122,14 @@ jobs:
           set -x
           mkdir -p pkg
           cp build/src/chocolate-{doom,heretic,hexen,strife,setup}.exe pkg/
+          # The shader DLL the games import at runtime. The slangvk-runtime
+          # build step places it next to the exes; the ldd walk below only
+          # collects /ucrt64 runtime DLLs and would never pick it up — a
+          # zip without it dies at launch with a "libslang-vk.dll not
+          # found" dialog. Fail the job loudly instead of shipping a
+          # broken zip.
+          test -f build/src/libslang-vk.dll
+          cp build/src/libslang-vk.dll pkg/
           # The MinGW runtime DLLs the binaries need on clean systems.
           # Walk every game binary (not just chocolate-doom) so setup's
           # dependencies are covered too; || true per line for binaries
@@ -175,6 +183,14 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path pkg | Out-Null
           Copy-Item build\src\chocolate-*.exe pkg\
+          # The shader DLL the games import at runtime (the slangvk-runtime
+          # build step places it next to the exes; z-applocal only handles
+          # vcpkg-installed DLLs). Fail loudly instead of shipping a zip
+          # that cannot launch.
+          if (-not (Test-Path build\src\libslang-vk.dll)) {
+            throw "build\src\libslang-vk.dll is missing - nothing to ship"
+          }
+          Copy-Item build\src\libslang-vk.dll pkg\
           if (Test-Path build\vcpkg_installed) {
             Copy-Item build\vcpkg_installed\x64-windows\bin\*.dll pkg\
           }

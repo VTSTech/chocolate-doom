@@ -69,12 +69,14 @@ Windows, and `libslang-vk` as a shared DLL.
   (SEC-07) and a zero-allocation render path (PERF-09). Bumping the pin
   is always a deliberate hash swap in `CMakeLists.txt`.
 - **`libslang-vk` now builds as a shared library** — `libslang-vk.dll`
-  is copied beside all four game executables at build time
-  (`libslang-vk.so` on Linux), exporting its 27 C-API symbols via
-  `cmake/libslang-vk-c-api.def` (MSVC and MinGW need the explicit
-  `.def`; ELF exports the symbols by default anyway). Relinking a game
-  no longer relinks the shader compiler. Prefer static again? One CMake
-  toggle — see README-VK.md, "Building".
+  (identically named on MSVC and MinGW — an empty target prefix keeps
+  MinGW from doubling it to `liblibslang-vk.dll`) is deployed beside
+  the game executables at build time by a single `slangvk-runtime`
+  copy step (`libslang-vk.so` on Linux), exporting its 27 C-API
+  symbols via `cmake/libslang-vk-c-api.def` (MSVC and MinGW need the
+  explicit `.def`; ELF exports the symbols by default anyway).
+  Relinking a game no longer relinks the shader compiler. Prefer static
+  again? One CMake toggle — see README-VK.md, "Building".
 - F11 is now a three-way aspect cycle (was 4:3 ↔ 16:10).
 - Stats overlay: the shader row shows the preset's basename
   (`crt-easymode | 3 passes`) instead of the full path, and the old
@@ -104,6 +106,15 @@ Windows, and `libslang-vk` as a shared DLL.
   `{"name": "sdl2", "features": ["vulkan"]}` — and additionally
   requests the `vulkan` port (headers + ICD loader) for the renderer's
   own `find_package(Vulkan)`.
+- The Windows CI artifacts ship `libslang-vk.dll` — and the jobs fail
+  loudly when it is absent. Two holes closed: the MSYS2 zip's ldd-based
+  runtime walk only collected `/ucrt64` DLLs and silently omitted it
+  (the zip launched straight into a "not found" dialog), and the MSVC
+  package step never looked at the build tree at all. Deployment itself
+  no longer races either: the initial per-game POST_BUILD copies could
+  collide on the same destination under parallel links (a Windows
+  sharing violation — intermittent `permission denied` on the MSVC
+  runner); one copy step that every game depends on replaces them.
 - `-vkcapture` screenshots came out blue-shifted. The readback
   (`slangvk_device_read_pixels`) is a raw `vkCmdCopyImageToBuffer`, so
   bytes arrive in the surface format's native packing: B8G8R8A8 memory

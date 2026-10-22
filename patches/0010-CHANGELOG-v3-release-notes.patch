@@ -1,14 +1,14 @@
-From 3c813ebea8369cac7d4c74ecf7fdebda56760e5a Mon Sep 17 00:00:00 2001
+From a648b241af5a255db0e05ac4ed27696d376f0fcf Mon Sep 17 00:00:00 2001
 From: Nigel Todman <veritas@vts-tech.org>
-Date: Wed, 21 Oct 2026 23:45:39 +0000
+Date: Thu, 22 Oct 2026 00:03:54 +0000
 Subject: [PATCH] CHANGELOG: v3 release notes
 
 ---
- CHANGELOG.md | 95 +++++++++++++++++++++++++++++++++++++++++-----------
- 1 file changed, 75 insertions(+), 20 deletions(-)
+ CHANGELOG.md | 106 +++++++++++++++++++++++++++++++++++++++++----------
+ 1 file changed, 86 insertions(+), 20 deletions(-)
 
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index dfddcf47..4993fc4b 100644
+index dfddcf47..00c44f05 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -9,7 +9,41 @@ Versions: this repository's `v<N>` tags.
@@ -53,7 +53,7 @@ index dfddcf47..4993fc4b 100644
  - **PrintScreen** hotkey — screenshot at any moment: reads back the next
    presented frame to the first free `vkshotNNN.tga` (names probed with
    `fopen`, so nothing is ever overwritten). Same channel-correct TGA
-@@ -20,18 +54,34 @@ Versions: this repository's `v<N>` tags.
+@@ -20,18 +54,36 @@ Versions: this repository's `v<N>` tags.
    persists in `shader_base_resolution` on exit.
  - Transient amber feedback row (2 s) in the stats overlay for either
    hotkey (`shot vkshot000.tga` / `base 640x480 (2x)`).
@@ -81,12 +81,14 @@ index dfddcf47..4993fc4b 100644
 +  (SEC-07) and a zero-allocation render path (PERF-09). Bumping the pin
 +  is always a deliberate hash swap in `CMakeLists.txt`.
 +- **`libslang-vk` now builds as a shared library** — `libslang-vk.dll`
-+  is copied beside all four game executables at build time
-+  (`libslang-vk.so` on Linux), exporting its 27 C-API symbols via
-+  `cmake/libslang-vk-c-api.def` (MSVC and MinGW need the explicit
-+  `.def`; ELF exports the symbols by default anyway). Relinking a game
-+  no longer relinks the shader compiler. Prefer static again? One CMake
-+  toggle — see README-VK.md, "Building".
++  (identically named on MSVC and MinGW — an empty target prefix keeps
++  MinGW from doubling it to `liblibslang-vk.dll`) is deployed beside
++  the game executables at build time by a single `slangvk-runtime`
++  copy step (`libslang-vk.so` on Linux), exporting its 27 C-API
++  symbols via `cmake/libslang-vk-c-api.def` (MSVC and MinGW need the
++  explicit `.def`; ELF exports the symbols by default anyway).
++  Relinking a game no longer relinks the shader compiler. Prefer static
++  again? One CMake toggle — see README-VK.md, "Building".
 +- F11 is now a three-way aspect cycle (was 4:3 ↔ 16:10).
 +- Stats overlay: the shader row shows the preset's basename
 +  (`crt-easymode | 3 passes`) instead of the full path, and the old
@@ -97,7 +99,7 @@ index dfddcf47..4993fc4b 100644
  
  ### Fixed
  - A silent-fallback trap: if an earlier `-novulkan` run persisted
-@@ -41,15 +91,19 @@ Versions: this repository's `v<N>` tags.
+@@ -41,15 +93,28 @@ Versions: this repository's `v<N>` tags.
    for that run (and persists `usevulkan = 1`); `-novulkan` still wins
    when both are given.
  - Vulkan fallbacks are no longer invisible: every failure exit of
@@ -122,10 +124,19 @@ index dfddcf47..4993fc4b 100644
 +  `{"name": "sdl2", "features": ["vulkan"]}` — and additionally
 +  requests the `vulkan` port (headers + ICD loader) for the renderer's
 +  own `find_package(Vulkan)`.
++- The Windows CI artifacts ship `libslang-vk.dll` — and the jobs fail
++  loudly when it is absent. Two holes closed: the MSYS2 zip's ldd-based
++  runtime walk only collected `/ucrt64` DLLs and silently omitted it
++  (the zip launched straight into a "not found" dialog), and the MSVC
++  package step never looked at the build tree at all. Deployment itself
++  no longer races either: the initial per-game POST_BUILD copies could
++  collide on the same destination under parallel links (a Windows
++  sharing violation — intermittent `permission denied` on the MSVC
++  runner); one copy step that every game depends on replaces them.
  - `-vkcapture` screenshots came out blue-shifted. The readback
    (`slangvk_device_read_pixels`) is a raw `vkCmdCopyImageToBuffer`, so
    bytes arrive in the surface format's native packing: B8G8R8A8 memory
-@@ -107,6 +161,7 @@ Versions: this repository's `v<N>` tags.
+@@ -107,6 +172,7 @@ Versions: this repository's `v<N>` tags.
    `9e593bb18ea69cc5095e012465dcd675a822ed0d`) so the manifest resolves
    deterministically.
  

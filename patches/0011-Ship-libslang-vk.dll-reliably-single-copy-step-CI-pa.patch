@@ -1,0 +1,167 @@
+From ba60180806d381a9578a5c02627e622b5cafcdf1 Mon Sep 17 00:00:00 2001
+From: Nigel Todman <veritas@vts-tech.org>
+Date: Thu, 22 Oct 2026 00:03:25 +0000
+Subject: [PATCH] Ship libslang-vk.dll reliably: single copy step + CI
+ packaging
+
+The four per-game POST_BUILD copies raced on the same destination
+under parallel links (intermittent permission denied / sharing
+violation on the MSVC runner); one slangvk-runtime copy step the
+games depend on replaces them. MinGW now names the DLL
+libslang-vk.dll like MSVC (empty prefix, was liblibslang-vk.dll).
+Both Windows packaging steps copy the DLL into the artifact zips
+and fail the job when it is missing.
+---
+ .github/workflows/vk-shaders.yml | 16 ++++++++++++++++
+ CMakeLists.txt                   |  8 ++++++--
+ README-VK.md                     | 27 +++++++++++++++++++++++----
+ src/CMakeLists.txt               | 29 ++++++++++++++++++++++-------
+ 4 files changed, 67 insertions(+), 13 deletions(-)
+
+diff --git a/.github/workflows/vk-shaders.yml b/.github/workflows/vk-shaders.yml
+index e17c10c3..5bde8de9 100644
+--- a/.github/workflows/vk-shaders.yml
++++ b/.github/workflows/vk-shaders.yml
+@@ -122,6 +122,14 @@ jobs:
+           set -x
+           mkdir -p pkg
+           cp build/src/chocolate-{doom,heretic,hexen,strife,setup}.exe pkg/
++          # The shader DLL the games import at runtime. The slangvk-runtime
++          # build step places it next to the exes; the ldd walk below only
++          # collects /ucrt64 runtime DLLs and would never pick it up — a
++          # zip without it dies at launch with a "libslang-vk.dll not
++          # found" dialog. Fail the job loudly instead of shipping a
++          # broken zip.
++          test -f build/src/libslang-vk.dll
++          cp build/src/libslang-vk.dll pkg/
+           # The MinGW runtime DLLs the binaries need on clean systems.
+           # Walk every game binary (not just chocolate-doom) so setup's
+           # dependencies are covered too; || true per line for binaries
+@@ -175,6 +183,14 @@ jobs:
+         run: |
+           New-Item -ItemType Directory -Force -Path pkg | Out-Null
+           Copy-Item build\src\chocolate-*.exe pkg\
++          # The shader DLL the games import at runtime (the slangvk-runtime
++          # build step places it next to the exes; z-applocal only handles
++          # vcpkg-installed DLLs). Fail loudly instead of shipping a zip
++          # that cannot launch.
++          if (-not (Test-Path build\src\libslang-vk.dll)) {
++            throw "build\src\libslang-vk.dll is missing - nothing to ship"
++          }
++          Copy-Item build\src\libslang-vk.dll pkg\
+           if (Test-Path build\vcpkg_installed) {
+             Copy-Item build\vcpkg_installed\x64-windows\bin\*.dll pkg\
+           }
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 5346adaa..75511b77 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -91,10 +91,14 @@ if(ENABLE_VK_SHADERS)
+     FetchContent_MakeAvailable(libslang-vk)
+     # User-facing artifact names: libslang-vk.dll on Windows (the repo's
+     # name), libslang-vk.so / libslang-vk.dylib elsewhere (CMake adds
+-    # the "lib" prefix there).
++    # the "lib" prefix there). PREFIX "" is for MinGW: its toolchain
++    # default would combine with the OUTPUT_NAME into a double-prefixed
++    # liblibslang-vk.dll; MSVC's prefix is empty anyway, so the DLL is
++    # named identically on every Windows toolchain.
+     if(WIN32)
+         set_target_properties(slangvk-shared PROPERTIES
+-            OUTPUT_NAME "libslang-vk")
++            OUTPUT_NAME "libslang-vk"
++            PREFIX "")
+         # The upstream C API (slangvk/c.h, src/c_api.cpp) carries no
+         # SLANGVK_API annotation — export.h only annotates the C++
+         # headers — so on Windows the shared build would export none of
+diff --git a/README-VK.md b/README-VK.md
+index fb223f3d..c3494db9 100644
+--- a/README-VK.md
++++ b/README-VK.md
+@@ -58,10 +58,15 @@ them (plus Strife). On Windows, MSYS2/MinGW and MSVC (vcpkg manifest) are
+ wired up in `.github/workflows/vk-shaders.yml`.
+ 
+ The library is linked as a **shared** artifact: `libslang-vk.dll` on
+-Windows, `libslang-vk.so` / `libslang-vk.dylib` elsewhere, copied next
+-to every game executable at build time — so the build tree runs out of
+-the box, the executables stay small, and the shader library can be
+-swapped or updated without relinking all four games. On Windows the
++Windows — identically named on MSVC and MinGW (the target pins an
++empty prefix; MinGW's toolchain default would double it into
++`liblibslang-vk.dll`) — and `libslang-vk.so` / `libslang-vk.dylib`
++elsewhere. A single `slangvk-runtime` copy step puts it next to the
++game executables at build time — one command for every game, not one
++per game, which raced on the same destination under parallel MSVC
++links — so the build tree runs out of the box, the executables stay
++small, and the shader library can be swapped or updated without
++relinking all four games. On Windows the
+ exports come from `cmake/libslang-vk-c-api.def` (the upstream C surface
+ carries no annotation, so the DLL would otherwise export nothing); keep
+ that file in sync when bumping the pin — a missing name is a link error,
+@@ -420,6 +425,20 @@ throughout.
+   `.def` export list is cross-checked 1:1 against the pinned `c.h` (27
+   symbols, exact match); MSVC/MinGW link behavior with a .def is
+   standard toolchain behavior not re-tested here.
++- DLL deployment + CI packaging fix (v0.4.1): the four per-game
++  POST_BUILD copies raced under parallel links (intermittent
++  `open_for_read` "permission denied" — a Windows sharing violation —
++  on the MSVC runner); replaced by one `slangvk-runtime` copy step the
++  game targets depend on. Verified on Linux: full re-configure and
++  generate for both `ENABLE_VK_SHADERS` settings, the generated build
++  graph carries exactly one copy command with the intended ordering
++  (after `slangvk-shared` and the destination anchor, before every game
++  link), and executing the recorded copy command produces a
++  byte-identical, idempotent deployment. MinGW builds now name the DLL
++  `libslang-vk.dll` like MSVC (empty prefix; was the double-prefixed
++  `liblibslang-vk.dll`). Both Windows packaging steps copy the DLL
++  into the artifact zips and fail the job when it is absent; the
++  MSYS2/MSVC runs themselves execute on GitHub's runners.
+ - Not yet automated: interactive window resize / fullscreen-toggle
+   swapchain recreation (exercised by design; mirrors the reference host's
+   recreate logic — please report anything odd on real hardware).
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index c832f0cc..ba0e7909 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -233,17 +233,32 @@ if(MSVC)
+                           LINK_FLAGS "/MANIFEST:NO")
+ endif()
+ 
+-# Chocolate Doom VK: put libslang-vk.dll next to each game executable so
++# Chocolate Doom VK: put libslang-vk.dll next to the game executables so
+ # the build tree runs out of the box (the DLL has no dependencies beyond
+ # the CRT — glslang, volk and VMA are inside it). $<TARGET_FILE_DIR:...>
+-# follows each exe wherever the generator puts it, per-configuration.
++# resolves per-configuration, wherever the generator puts the exes.
++#
++# One copy step for every game, NOT one POST_BUILD per game: the games
++# link in parallel, and four copy_if_different commands opening the
++# same destination at the same moment raced each other into an
++# intermittent "permission denied" (a Windows sharing violation) on
++# the MSVC CI. A single custom target cannot race itself, and all
++# executables land in the same directory, so one copy serves all.
++#
++# The destination is anchored on chocolate-setup: every executable in
++# this directory shares it, and setup never links slangvk — anchoring
++# on a game instead would make the genex's implicit dependency
++# (custom target -> that game) collide with the add_dependencies edge
++# below (that game -> custom target) into a dependency cycle.
+ if(ENABLE_VK_SHADERS AND TARGET slangvk-shared)
++    add_custom_target(slangvk-runtime ALL
++        COMMAND ${CMAKE_COMMAND} -E copy_if_different
++                "$<TARGET_FILE:slangvk-shared>"
++                "$<TARGET_FILE_DIR:${PROGRAM_PREFIX}setup>"
++        DEPENDS slangvk-shared
++        COMMENT "Copying libslang-vk next to the game executables")
+     foreach(VK_GAME doom heretic hexen strife)
+-        add_custom_command(TARGET "${PROGRAM_PREFIX}${VK_GAME}" POST_BUILD
+-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+-                    "$<TARGET_FILE:slangvk-shared>"
+-                    "$<TARGET_FILE_DIR:${PROGRAM_PREFIX}${VK_GAME}>"
+-            COMMENT "Copying libslang-vk next to ${PROGRAM_PREFIX}${VK_GAME}")
++        add_dependencies("${PROGRAM_PREFIX}${VK_GAME}" slangvk-runtime)
+     endforeach()
+ endif()
+ 
+-- 
+2.47.3
+

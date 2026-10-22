@@ -233,17 +233,32 @@ if(MSVC)
                           LINK_FLAGS "/MANIFEST:NO")
 endif()
 
-# Chocolate Doom VK: put libslang-vk.dll next to each game executable so
+# Chocolate Doom VK: put libslang-vk.dll next to the game executables so
 # the build tree runs out of the box (the DLL has no dependencies beyond
 # the CRT — glslang, volk and VMA are inside it). $<TARGET_FILE_DIR:...>
-# follows each exe wherever the generator puts it, per-configuration.
+# resolves per-configuration, wherever the generator puts the exes.
+#
+# One copy step for every game, NOT one POST_BUILD per game: the games
+# link in parallel, and four copy_if_different commands opening the
+# same destination at the same moment raced each other into an
+# intermittent "permission denied" (a Windows sharing violation) on
+# the MSVC CI. A single custom target cannot race itself, and all
+# executables land in the same directory, so one copy serves all.
+#
+# The destination is anchored on chocolate-setup: every executable in
+# this directory shares it, and setup never links slangvk — anchoring
+# on a game instead would make the genex's implicit dependency
+# (custom target -> that game) collide with the add_dependencies edge
+# below (that game -> custom target) into a dependency cycle.
 if(ENABLE_VK_SHADERS AND TARGET slangvk-shared)
+    add_custom_target(slangvk-runtime ALL
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE:slangvk-shared>"
+                "$<TARGET_FILE_DIR:${PROGRAM_PREFIX}setup>"
+        DEPENDS slangvk-shared
+        COMMENT "Copying libslang-vk next to the game executables")
     foreach(VK_GAME doom heretic hexen strife)
-        add_custom_command(TARGET "${PROGRAM_PREFIX}${VK_GAME}" POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "$<TARGET_FILE:slangvk-shared>"
-                    "$<TARGET_FILE_DIR:${PROGRAM_PREFIX}${VK_GAME}>"
-            COMMENT "Copying libslang-vk next to ${PROGRAM_PREFIX}${VK_GAME}")
+        add_dependencies("${PROGRAM_PREFIX}${VK_GAME}" slangvk-runtime)
     endforeach()
 endif()
 

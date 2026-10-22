@@ -91,10 +91,14 @@ if(ENABLE_VK_SHADERS)
     FetchContent_MakeAvailable(libslang-vk)
     # User-facing artifact names: libslang-vk.dll on Windows (the repo's
     # name), libslang-vk.so / libslang-vk.dylib elsewhere (CMake adds
-    # the "lib" prefix there).
+    # the "lib" prefix there). PREFIX "" is for MinGW: its toolchain
+    # default would combine with the OUTPUT_NAME into a double-prefixed
+    # liblibslang-vk.dll; MSVC's prefix is empty anyway, so the DLL is
+    # named identically on every Windows toolchain.
     if(WIN32)
         set_target_properties(slangvk-shared PROPERTIES
-            OUTPUT_NAME "libslang-vk")
+            OUTPUT_NAME "libslang-vk"
+            PREFIX "")
         # The upstream C API (slangvk/c.h, src/c_api.cpp) carries no
         # SLANGVK_API annotation — export.h only annotates the C++
         # headers — so on Windows the shared build would export none of
