@@ -180,7 +180,6 @@ void M_ChangeFOV(int choice);     // [CDVK] FOV
 void M_Advanced(int choice);      // [CDVK] ADVANCED submenu
 static void M_Shaders(int choice);            // [CDVK] SHADERS browser
 static void M_ShadersPick(int choice);
-static void M_ShadersPage(int choice);
 static void M_ShadersNone(int choice);
 static void M_DrawShadersBrowser(void);
 void M_StartGame(int choice);
@@ -208,6 +207,7 @@ void M_DrawSaveLoadBorder(int x,int y);
 void M_SetupNextMenu(menu_t *menudef);
 void M_DrawThermo(int x,int y,int thermWidth,int thermDot);
 static void M_DrawTextScaled(int x, int y, const char *string, patch_t *refpatch);  // [CDVK] FOV
+static void M_DrawTextScaled1x(int x, int y, const char *string);  // [CDVK] browser rows
 void M_DrawEmptyCell(menu_t *menu,int item);
 void M_DrawSelCell(menu_t *menu,int item);
 int  M_StringWidth(const char *string);
@@ -1231,23 +1231,26 @@ void M_Advanced(int choice)
 
 //
 // [CDVK] SHADERS browser (occupies the old SHADERS placeholder row in
-// the Options menu). Pages through every .slangp preset found by
+// the Options menu). Shows every .slangp preset found by
 // I_ShaderPresets() - the active preset's own folder, shaders/ beside
-// the executable, shaders/ in the config dir - and applies a pick with
-// I_SelectShaderPreset(): a live hot-swap when the Vulkan path is up
-// (prepare-then-commit inside i_video_vk.c; a broken preset leaves the
-// current shader on screen), or a persist-for-next-run selection on
-// the classic renderer. There is deliberately no "shaders off" row:
-// that removal was its own fix.
+// the executable, shaders/ in the config dir - as a sliding window:
+// the rows are always a contiguous slice of the full list, up/down
+// moves through all of it (the window follows the cursor), left/right
+// skips a windowful, and a pick is applied with I_SelectShaderPreset():
+// a live hot-swap when the Vulkan path is up (prepare-then-commit
+// inside i_video_vk.c; a broken preset leaves the current shader on
+// screen), or a persist-for-next-run selection on the classic renderer.
+// There is deliberately no "shaders off" row: that removal was its own
+// fix.
 //
-#define SHADERS_PAGE_ROWS 7
-#define SHADERS_NAME_MAX   18    // preset rows per page (an 8th row is the pager)
+#define SHADERS_PAGE_ROWS 8
+#define SHADERS_NAME_MAX   18    // visible rows / longest name before ".."
 
 static menuitem_t ShadersMenu[SHADERS_PAGE_ROWS + 2];
 
 static menu_t ShadersDef =
 {
-    0,                 // numitems, rebuilt on every open/page flip
+    0,                 // numitems, rebuilt on every open/scroll
     &OptionsDef,
     ShadersMenu,
     M_DrawShadersBrowser,
@@ -1257,16 +1260,15 @@ static menu_t ShadersDef =
 
 static const char **shaders_list = NULL;    // scanned presets (i_video.c)
 static int shaders_count = 0;
-static int shaders_page = 0;
+static int shaders_top = 0;                 // first visible preset
 
-// Fill ShadersMenu[] for shaders_page: one row per preset on the page,
-// a MORE... row when another page follows, and the status -1
-// terminator. Rows are status 1 (enter fires the routine; the left/
-// right arrows that drive sliders stay hands-off).
+// Fill ShadersMenu[] for the window at shaders_top: one row per
+// visible preset and the status -1 terminator. Rows are status 1
+// (enter fires the routine; left/right are taken over by
+// M_ShadersScroll for window skips).
 static void M_BuildShaderPage(void)
 {
-    int first = shaders_page * SHADERS_PAGE_ROWS;
-    int rows = shaders_count - first;
+    int rows = shaders_count - shaders_top;
     int i;
 
     if (rows > SHADERS_PAGE_ROWS)
@@ -1292,55 +1294,148 @@ static void M_BuildShaderPage(void)
         ShadersMenu[0].routine = M_ShadersNone;
         rows = 1;
     }
-    else if (first + rows < shaders_count)
-    {
-        ShadersMenu[rows].status = 1;
-        ShadersMenu[rows].name[0] = '\0';
-        ShadersMenu[rows].routine = M_ShadersPage;
-        ShadersMenu[rows].alphaKey = '\0';
-        rows++;
-    }
     ShadersMenu[rows].status = -1;
     ShadersMenu[rows].routine = NULL;
     ShadersDef.numitems = (short) rows;
 }
 
+// Move the selection to absolute preset index sel, scrolling the
+// window and rebuilding the rows so it stays visible.
+static void M_ShadersShow(int sel)
+{
+    if (sel < 0)
+    {
+        sel = 0;
+    }
+    if (sel > shaders_count - 1)
+    {
+        sel = shaders_count - 1;
+    }
+    if (sel < shaders_top)
+    {
+        shaders_top = sel;
+    }
+    else if (sel >= shaders_top + SHADERS_PAGE_ROWS)
+    {
+        shaders_top = sel - SHADERS_PAGE_ROWS + 1;
+    }
+    itemOn = (short) (sel - shaders_top);
+    ShadersDef.lastOn = itemOn;
+    M_BuildShaderPage();
+}
+
+// The browser takes over the movement keys before the generic wrap:
+// up/down walk the whole preset list (the window follows the cursor,
+// so scrolling back up works), left/right skip a windowful in either
+// direction. Every other key (enter, backspace, escape) falls through
+// to the generic handling below.
+static boolean M_ShadersScroll(int key)
+{
+    int sel;
+
+    if (shaders_count == 0)
+    {
+        return false;    // empty-folder row: generic handling
+    }
+    sel = shaders_top + itemOn;
+    if (sel > shaders_count - 1)
+    {
+        sel = shaders_count - 1;
+    }
+    if (key == key_menu_down)
+    {
+        if (sel + 1 > shaders_count - 1)
+        {
+            sel = 0;
+        }
+        else
+        {
+            sel = sel + 1;
+        }
+    }
+    else if (key == key_menu_up)
+    {
+        if (sel - 1 < 0)
+        {
+            sel = shaders_count - 1;
+        }
+        else
+        {
+            sel = sel - 1;
+        }
+    }
+    else if (key == key_menu_left)
+    {
+        if (sel - SHADERS_PAGE_ROWS < 0)
+        {
+            sel = 0;
+        }
+        else
+        {
+            sel = sel - SHADERS_PAGE_ROWS;
+        }
+    }
+    else if (key == key_menu_right)
+    {
+        if (sel + SHADERS_PAGE_ROWS > shaders_count - 1)
+        {
+            sel = shaders_count - 1;
+        }
+        else
+        {
+            sel = sel + SHADERS_PAGE_ROWS;
+        }
+    }
+    else
+    {
+        return false;
+    }
+    M_ShadersShow(sel);
+    S_StartSound(NULL, sfx_pstop);
+    return true;
+}
+
 //
 // Open the browser from the Options menu's SHADERS row. The scan runs
 // here so presets dropped into a shaders/ folder mid-session appear
-// without a restart, and the opening page/row is the active preset.
+// without a restart, and the window opens on the active preset.
 //
 static void M_Shaders(int choice)
 {
     const char *cur;
     int i;
+    int sel;
 
     choice = 0;
     shaders_list = I_ShaderPresets(&shaders_count);
-    shaders_page = 0;
-    itemOn = 0;
+    shaders_top = 0;
+    sel = 0;
     cur = I_CurrentShaderPreset();
     for (i = 0; i < shaders_count; i++)
     {
         if (strcmp(shaders_list[i], cur) == 0)
         {
-            shaders_page = i / SHADERS_PAGE_ROWS;
-            itemOn = (short) (i % SHADERS_PAGE_ROWS);
+            sel = i;
             break;
         }
     }
+    shaders_top = sel - sel % SHADERS_PAGE_ROWS;
     M_BuildShaderPage();
+    M_SetupNextMenu(&ShadersDef);
+    // M_SetupNextMenu resets itemOn from lastOn; place the cursor on
+    // the active preset afterwards.
+    itemOn = (short) (sel - shaders_top);
     if (itemOn >= ShadersDef.numitems)
     {
         itemOn = 0;
     }
-    M_SetupNextMenu(&ShadersDef);
+    ShadersDef.lastOn = itemOn;
 }
 
 // Enter on a preset row: apply it.
 static void M_ShadersPick(int choice)
 {
-    int idx = shaders_page * SHADERS_PAGE_ROWS + itemOn;
+    int idx = shaders_top + itemOn;
 
     choice = 0;
     if (itemOn >= ShadersDef.numitems || idx >= shaders_count)
@@ -1363,22 +1458,6 @@ static void M_ShadersPick(int choice)
     }
 }
 
-// Enter on the MORE... row: next page (wraps).
-static void M_ShadersPage(int choice)
-{
-    choice = 0;
-    if ((shaders_page + 1) * SHADERS_PAGE_ROWS >= shaders_count)
-    {
-        shaders_page = 0;
-    }
-    else
-    {
-        shaders_page++;
-    }
-    itemOn = 0;
-    M_BuildShaderPage();
-}
-
 // Enter on the empty-folder row.
 static void M_ShadersNone(int choice)
 {
@@ -1387,23 +1466,21 @@ static void M_ShadersNone(int choice)
 }
 
 //
-// [CDVK] Browser draw: the M_OPTION title (as in M_DrawAdvanced), then
-// this page's rows in the HU font at the M_SVOL item height. The active
-// preset carries a " *" marker; the animated Sigil cursor (drawn
-// generically by M_Drawer) is the selection. Rows longer than
-// SHADERS_NAME_MAX chars are trimmed to "..".
+// [CDVK] Browser draw: the OPTIONS title patch, then this window's
+// rows in the HU font at its natural size - scaled to the M_SVOL item
+// height, a single row reads as a title. The active preset carries a
+// " *" marker; the animated cursor (drawn generically by M_Drawer)
+// rides the row pitch. Names longer than SHADERS_NAME_MAX are cut to
+// ".." (strife has no per-glyph width helper to trim by pixels).
 //
 static void M_DrawShadersBrowser(void)
 {
-    patch_t *label;
     const char *cur = I_CurrentShaderPreset();
-    int first = shaders_page * SHADERS_PAGE_ROWS;
-    int rows = shaders_count - first;
+    int rows = shaders_count - shaders_top;
     int i;
 
     V_DrawPatchDirect(108, 15,
                       W_CacheLumpName(DEH_String("M_OPTION"), PU_CACHE));
-    label = W_CacheLumpName(DEH_String("M_SVOL"), PU_CACHE);
 
     if (rows < 0)
     {
@@ -1415,10 +1492,10 @@ static void M_DrawShadersBrowser(void)
     }
     if (shaders_count == 0)
     {
-        M_DrawTextScaled(ShadersDef.x, ShadersDef.y,
-                         "(NO SHADERS FOUND)", label);
-        M_DrawTextScaled(ShadersDef.x, ShadersDef.y + LINEHEIGHT,
-                         "PUT .SLANGP FILES IN SHADERS/", label);
+        M_DrawTextScaled1x(ShadersDef.x, ShadersDef.y,
+                           "(NO SHADERS FOUND)");
+        M_DrawTextScaled1x(ShadersDef.x, ShadersDef.y + LINEHEIGHT,
+                           "PUT .SLANGP FILES IN SHADERS/");
         return;
     }
     for (i = 0; i < rows; i++)
@@ -1428,7 +1505,7 @@ static void M_DrawShadersBrowser(void)
         size_t len;
 
         M_snprintf(disp, sizeof(disp), "%s",
-                   M_BaseName(shaders_list[first + i]));
+                   M_BaseName(shaders_list[shaders_top + i]));
         dot = strrchr(disp, '.');
         if (dot != NULL)
         {
@@ -1441,18 +1518,13 @@ static void M_DrawShadersBrowser(void)
             M_snprintf(disp + SHADERS_NAME_MAX,
                        sizeof(disp) - SHADERS_NAME_MAX, "..");
         }
-        if (strcmp(shaders_list[first + i], cur) == 0)
+        if (strcmp(shaders_list[shaders_top + i], cur) == 0)
         {
             M_snprintf(disp + strlen(disp), sizeof(disp) - strlen(disp),
                        " *");
         }
-        M_DrawTextScaled(ShadersDef.x, ShadersDef.y + LINEHEIGHT * i,
-                         disp, label);
-    }
-    if (first + rows < shaders_count)
-    {
-        M_DrawTextScaled(ShadersDef.x, ShadersDef.y + LINEHEIGHT * rows,
-                         "MORE...", label);
+        M_DrawTextScaled1x(ShadersDef.x, ShadersDef.y + LINEHEIGHT * i,
+                           disp);
     }
 }
 
@@ -1987,21 +2059,16 @@ static void M_PatchInkExtent(patch_t *patch, int *top, int *bottom)
     *bottom = max_end;
 }
 
-// Uniform scale ratio for M_DrawTextScaled, as num/den: the ink
-// height of refpatch over the cap ink height of the HU font (the 'A'
-// glyph; every capital and digit shares it).  Measured rather than
-// hardcoded, so modded fonts stay consistent.
-static void M_TextScaledRatio(patch_t *refpatch, int *num, int *den)
+// Ink extent of the HU font's 'A' (the caps reference), measured once.
+static void M_HUCapInk(int *top, int *bottom)
 {
     static int cap_top = -1;
     static int cap_bottom;
-    int ref_top;
-    int ref_bottom;
+    patch_t *cap;
 
     if (cap_top < 0)
     {
-        patch_t *cap = hu_font['A' - HU_FONTSTART];
-
+        cap = hu_font['A' - HU_FONTSTART];
         if (cap != NULL)
         {
             M_PatchInkExtent(cap, &cap_top, &cap_bottom);
@@ -2013,6 +2080,20 @@ static void M_TextScaledRatio(patch_t *refpatch, int *num, int *den)
         }
     }
 
+    *top = cap_top;
+    *bottom = cap_bottom;
+}
+
+// Uniform scale ratio for M_DrawTextScaled, as num/den: the ink
+// height of refpatch over the cap ink height of the HU font (the 'A'
+// glyph; every capital and digit shares it).  Measured rather than
+// hardcoded, so modded fonts stay consistent.
+static void M_TextScaledRatio(patch_t *refpatch, int *num, int *den)
+{
+    int cap_top, cap_bottom;
+    int ref_top, ref_bottom;
+
+    M_HUCapInk(&cap_top, &cap_bottom);
     M_PatchInkExtent(refpatch, &ref_top, &ref_bottom);
 
     *num = ref_bottom - ref_top;
@@ -2028,18 +2109,17 @@ static void M_TextScaledRatio(patch_t *refpatch, int *num, int *den)
     }
 }
 
-static void
-M_DrawTextScaled
-( int           x,
-  int           y,
-  const char    *string,
-  patch_t       *refpatch )
+// The scaled draw itself: hu_font glyphs at ratio num/den, each
+// glyph's ink bottom-aligned to a baseline at y + ink_top + num (the
+// scaled cap ink height is exactly num).  Glyph pixels are read
+// exactly like V_DrawPatch does; the result is written straight into
+// I_VideoBuffer with bounds checks.
+static void M_DrawTextScaledNum(int x, int y, const char *string,
+                                int num, int den, int ink_top)
 {
     const char  *ch;
     int         c;
     int         cx;
-    int         num, den;
-    int         ref_top, ref_bottom;
     int         baseline;
     int         gy;
     int         dx, dy;
@@ -2053,20 +2133,12 @@ M_DrawTextScaled
     column_t    *column;
     column_t    *post;
 
-    if (refpatch == NULL)
-    {
-        return;
-    }
-
-    M_TextScaledRatio(refpatch, &num, &den);
-    M_PatchInkExtent(refpatch, &ref_top, &ref_bottom);
-
     // The HU font draws every glyph from the same top line (caps are
     // ink-aligned to it), so scaling the glyph boxes uniformly and
     // bottom-aligning each glyph's ink to the cap baseline keeps the
     // letters aligned with each other and puts punctuation on the
-    // baseline.  The scaled cap ink height is exactly num.
-    baseline = y + ref_top + num;
+    // baseline.
+    baseline = y + ink_top + num;
 
     cx = x;
 
@@ -2137,6 +2209,41 @@ M_DrawTextScaled
         V_MarkRect(x, row_min, cx > x ? cx - x : 1, row_max - row_min + 1);
     }
 }
+
+static void
+M_DrawTextScaled
+( int           x,
+  int           y,
+  const char    *string,
+  patch_t       *refpatch )
+{
+    int num, den;
+    int ref_top, ref_bottom;
+
+    if (refpatch == NULL)
+    {
+        return;
+    }
+
+    M_TextScaledRatio(refpatch, &num, &den);
+    M_PatchInkExtent(refpatch, &ref_top, &ref_bottom);
+
+    M_DrawTextScaledNum(x, y, string, num, den, ref_top);
+}
+
+// Natural-size variant: the HU font as-is (ratio 1:1, caps' ink top
+// at y).  The shader browser's rows use this - at the M_ item patch
+// height, a single row reads as a title.
+static void M_DrawTextScaled1x(int x, int y, const char *string)
+{
+    int cap_top, cap_bottom;
+
+    M_HUCapInk(&cap_top, &cap_bottom);
+
+    M_DrawTextScaledNum(x, y, string, cap_bottom - cap_top,
+                        cap_bottom - cap_top, 0);
+}
+
 // M_DialogDimMsg
 //
 // [STRIFE] New function
@@ -2705,6 +2812,13 @@ boolean M_Responder (event_t* ev)
     
     // Keys usable within menu
 
+    // [CDVK] Shader browser: the rows are a sliding window over the
+    // full preset list - scroll it here; the generic wrap below can
+    // only reach the rows of the current window.
+    if (currentMenu == &ShadersDef && M_ShadersScroll(key))
+    {
+        return true;
+    }
     if (key == key_menu_down)
     {
         // Move down to next item

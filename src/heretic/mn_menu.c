@@ -107,7 +107,7 @@ static boolean SCScreenSize(int option);
 static boolean SCFov(int option);      // [CDVK] FOV
 static boolean SCShaders(int option);   // [CDVK] SHADERS browser
 static boolean SCShadersPick(int option);
-static boolean SCShadersPage(int option);
+static boolean ShadersScroll(int key);
 static boolean SCShadersNone(int option);
 static void DrawShadersMenu(void);
 static boolean SCLoadGame(int option);
@@ -281,24 +281,26 @@ static Menu_t AdvancedMenu = {
 //---------------------------------------------------------------------------
 //
 // [CDVK] SHADERS browser (occupies the old SHADERS placeholder row).
-// Pages through every .slangp found by I_ShaderPresets() - the active
-// preset's own folder, shaders/ beside the executable, shaders/ in the
-// config dir - and applies a pick with I_SelectShaderPreset(): a live
-// hot-swap when the Vulkan path is up (prepare-then-commit inside
-// i_video_vk.c), or a persist-for-next-run selection on the classic
-// renderer. There is deliberately no "shaders off" row.
-//
+// Shows every .slangp found by I_ShaderPresets() - the active preset's
+// own folder, shaders/ beside the executable, shaders/ in the config
+// dir - as a sliding window: the rows are always a contiguous slice of
+// the full list, up/down moves through all of it (the window follows
+// the cursor), left/right skips a windowful, and a pick is applied
+// with I_SelectShaderPreset(): a live hot-swap when the Vulkan path is
+// up (prepare-then-commit inside i_video_vk.c), or a persist-for-next-
+// run selection on the classic renderer. There is deliberately no
+// "shaders off" row.
 //---------------------------------------------------------------------------
 
-#define SHADERS_PAGE_ROWS 7    // preset rows per page (an 8th row is the pager)
+#define SHADERS_PAGE_ROWS 8    // visible preset rows (the sliding window)
 
 static MenuItem_t ShadersItems[SHADERS_PAGE_ROWS + 2];
-static char ShadersNames[SHADERS_PAGE_ROWS + 1][24];
+static char ShadersNames[SHADERS_PAGE_ROWS + 1][48];
 
 static Menu_t ShadersMenu = {
     88, 30,
     DrawShadersMenu,
-    0,                 // itemCount, rebuilt on every open/page flip
+    0,                 // itemCount, rebuilt on every open/scroll
     ShadersItems,
     0,
     MENU_OPTIONS
@@ -306,16 +308,15 @@ static Menu_t ShadersMenu = {
 
 static const char **shaders_list = NULL;    // scanned presets (i_video.c)
 static int shaders_count = 0;
-static int shaders_page = 0;
+static int shaders_top = 0;                 // first visible preset
 
-// Fill ShadersItems[] for shaders_page. Names are copied into static
-// buffers (the menu holds raw pointers), trimmed to the FontB width
-// the 320px screen allows, " *" marks the active preset.
+// Fill ShadersItems[] for the window at shaders_top. Item text stays
+// NULL (MN_Drawer skips NULL rows) - DrawShadersMenu draws the rows
+// itself in the small FontA. Items carry the absolute preset index in
+// option, so SCShadersPick needs no row math.
 static void ShadersBuildPage(void)
 {
-    const char *cur = I_CurrentShaderPreset();
-    int first = shaders_page * SHADERS_PAGE_ROWS;
-    int rows = shaders_count - first;
+    int rows = shaders_count - shaders_top;
     int i;
 
     if (rows > SHADERS_PAGE_ROWS)
@@ -328,61 +329,122 @@ static void ShadersBuildPage(void)
     }
     for (i = 0; i < rows; i++)
     {
-        const char *path = shaders_list[first + i];
-        const char *base = M_BaseName(path);
-        char *dot;
-        size_t len;
-
-        M_snprintf(ShadersNames[i], sizeof(ShadersNames[i]), "%s", base);
-        dot = strrchr(ShadersNames[i], '.');
-        if (dot != NULL)
-        {
-            *dot = '\0';
-        }
-        len = strlen(ShadersNames[i]);
-        while (len > 2 && MN_TextBWidth(ShadersNames[i]) > 320 - 88 - 16)
-        {
-            ShadersNames[i][--len] = '\0';
-        }
-        if (strcmp(path, cur) == 0)
-        {
-            M_snprintf(ShadersNames[i] + len,
-                       sizeof(ShadersNames[i]) - len, " *");
-        }
         ShadersItems[i].type = ITT_EFUNC;
-        ShadersItems[i].text = ShadersNames[i];
+        ShadersItems[i].text = NULL;
         ShadersItems[i].func = SCShadersPick;
-        ShadersItems[i].option = first + i;
+        ShadersItems[i].option = shaders_top + i;
         ShadersItems[i].menu = MENU_NONE;
     }
     if (rows == 0)
     {
         // Empty folder: one selectable shrug row (the cursor needs a
-        // non-ITT_EMPTY home or the up/down do-while spins forever)
-        // plus a drawn-but-unselectable hint line.
+        // non-ITT_EMPTY home or the generic up/down do-while would spin
+        // forever if the browser were entered that way).
         ShadersItems[0].type = ITT_EFUNC;
-        ShadersItems[0].text = "(NO SHADERS FOUND)";
+        ShadersItems[0].text = NULL;
         ShadersItems[0].func = SCShadersNone;
         ShadersItems[0].option = 0;
         ShadersItems[0].menu = MENU_NONE;
-        ShadersItems[1].type = ITT_EMPTY;
-        ShadersItems[1].text = "PUT .SLANGP FILES IN SHADERS/";
-        ShadersItems[1].func = NULL;
-        ShadersItems[1].option = 0;
-        ShadersItems[1].menu = MENU_NONE;
-        ShadersMenu.itemCount = 2;
+        ShadersMenu.itemCount = 1;
         return;
     }
-    if (first + rows < shaders_count)
-    {
-        ShadersItems[rows].type = ITT_EFUNC;
-        ShadersItems[rows].text = "MORE...";
-        ShadersItems[rows].func = SCShadersPage;
-        ShadersItems[rows].option = 0;
-        ShadersItems[rows].menu = MENU_NONE;
-        rows++;
-    }
     ShadersMenu.itemCount = rows;
+}
+
+// Scroll the window so absolute preset index sel is visible and put
+// the cursor on it.
+static void ShadersShow(int sel)
+{
+    if (sel < 0)
+    {
+        sel = 0;
+    }
+    if (sel > shaders_count - 1)
+    {
+        sel = shaders_count - 1;
+    }
+    if (sel < shaders_top)
+    {
+        shaders_top = sel;
+    }
+    else if (sel >= shaders_top + SHADERS_PAGE_ROWS)
+    {
+        shaders_top = sel - SHADERS_PAGE_ROWS + 1;
+    }
+    ShadersBuildPage();
+    ShadersMenu.oldItPos = sel - shaders_top;
+    CurrentItPos = ShadersMenu.oldItPos;
+}
+
+// The browser takes over the movement keys before the generic wrap:
+// up/down walk the whole preset list (the window follows the cursor,
+// so scrolling back up works), left/right skip a windowful in either
+// direction. Every other key (enter, backspace, escape) falls through
+// to the generic handling below.
+static boolean ShadersScroll(int key)
+{
+    int sel;
+
+    if (shaders_count == 0)
+    {
+        return false;    // empty-folder row: generic handling
+    }
+    sel = shaders_top + CurrentItPos;
+    if (sel > shaders_count - 1)
+    {
+        sel = shaders_count - 1;
+    }
+    if (key == key_menu_down)
+    {
+        if (sel + 1 > shaders_count - 1)
+        {
+            sel = 0;
+        }
+        else
+        {
+            sel = sel + 1;
+        }
+    }
+    else if (key == key_menu_up)
+    {
+        if (sel - 1 < 0)
+        {
+            sel = shaders_count - 1;
+        }
+        else
+        {
+            sel = sel - 1;
+        }
+    }
+    else if (key == key_menu_left)
+    {
+        if (sel - SHADERS_PAGE_ROWS < 0)
+        {
+            sel = 0;
+        }
+        else
+        {
+            sel = sel - SHADERS_PAGE_ROWS;
+        }
+    }
+    else if (key == key_menu_right)
+    {
+        if (sel + SHADERS_PAGE_ROWS > shaders_count - 1)
+        {
+            sel = shaders_count - 1;
+        }
+        else
+        {
+            sel = sel + SHADERS_PAGE_ROWS;
+        }
+    }
+    else
+    {
+        return false;
+    }
+    ShadersShow(sel);
+    S_StartSound(NULL, sfx_switch);
+    return true;
 }
 
 // Open the browser from the Options menu's SHADERS row.
@@ -390,10 +452,12 @@ static boolean SCShaders(int option)
 {
     const char *cur;
     int i;
+    int sel;
 
     option = 0;
     shaders_list = I_ShaderPresets(&shaders_count);
-    shaders_page = 0;
+    shaders_top = 0;
+    sel = 0;
     i = 0;
     cur = I_CurrentShaderPreset();
     while (i < shaders_count && strcmp(shaders_list[i], cur) != 0)
@@ -402,19 +466,17 @@ static boolean SCShaders(int option)
     }
     if (i < shaders_count)
     {
-        shaders_page = i / SHADERS_PAGE_ROWS;
-        ShadersMenu.oldItPos = i % SHADERS_PAGE_ROWS;
+        sel = i;
     }
-    else
-    {
-        ShadersMenu.oldItPos = 0;
-    }
+    // Open the window on the active preset's page-aligned block.
+    shaders_top = sel - sel % SHADERS_PAGE_ROWS;
     ShadersBuildPage();
+    ShadersMenu.oldItPos = sel - shaders_top;
     if (ShadersMenu.oldItPos >= ShadersMenu.itemCount)
     {
         ShadersMenu.oldItPos = 0;
     }
-    SetMenu(MENU_SHADERS);
+    SetMenu(MENU_SHADERS);    // sets CurrentItPos from oldItPos
     S_StartSound(NULL, sfx_chat);
     return true;
 }
@@ -443,24 +505,6 @@ static boolean SCShadersPick(int option)
     return true;
 }
 
-// Enter on the MORE... row: next page (wraps).
-static boolean SCShadersPage(int option)
-{
-    option = 0;
-    if ((shaders_page + 1) * SHADERS_PAGE_ROWS >= shaders_count)
-    {
-        shaders_page = 0;
-    }
-    else
-    {
-        shaders_page++;
-    }
-    ShadersMenu.oldItPos = 0;
-    ShadersBuildPage();
-    CurrentItPos = 0;
-    return true;
-}
-
 // Enter on the empty-folder row.
 static boolean SCShadersNone(int option)
 {
@@ -470,12 +514,62 @@ static boolean SCShadersNone(int option)
 }
 
 //
-// Browser draw: a centered SHADERS heading above the auto-drawn rows
-// (MN_Drawer draws item text and the M_SLCTR cursor itself).
+// Browser draw: a centered SHADERS heading above the window's rows,
+// drawn here in the small FontA at the ITEM_HEIGHT pitch the M_SLCTR
+// cursor rides on (item text is NULL, so MN_Drawer's own FontB row
+// pass draws nothing). The active preset carries a " *" marker; names
+// that would overflow the 320px screen are shaved back.
 //
 static void DrawShadersMenu(void)
 {
+    const char *cur = I_CurrentShaderPreset();
+    int rows = shaders_count - shaders_top;
+    int maxw = 320 - ShadersMenu.x - 16;
+    int i;
+
     MN_DrTextB("SHADERS", 160 - MN_TextBWidth("SHADERS") / 2, 10);
+
+    if (rows > SHADERS_PAGE_ROWS)
+    {
+        rows = SHADERS_PAGE_ROWS;
+    }
+    if (rows < 0)
+    {
+        rows = 0;
+    }
+    if (shaders_count == 0)
+    {
+        MN_DrTextA("(NO SHADERS FOUND)", ShadersMenu.x, ShadersMenu.y);
+        MN_DrTextA("PUT .SLANGP FILES IN SHADERS/", ShadersMenu.x,
+                   ShadersMenu.y + ITEM_HEIGHT);
+        return;
+    }
+    for (i = 0; i < rows; i++)
+    {
+        const char *path = shaders_list[shaders_top + i];
+        char *dot;
+        size_t len;
+
+        M_snprintf(ShadersNames[i], sizeof(ShadersNames[i]), "%s",
+                   M_BaseName(path));
+        dot = strrchr(ShadersNames[i], '.');
+        if (dot != NULL)
+        {
+            *dot = '\0';
+        }
+        len = strlen(ShadersNames[i]);
+        while (len > 2 && MN_TextAWidth(ShadersNames[i]) > maxw)
+        {
+            ShadersNames[i][--len] = '\0';
+        }
+        if (strcmp(path, cur) == 0)
+        {
+            M_snprintf(ShadersNames[i] + len,
+                       sizeof(ShadersNames[i]) - len, " *");
+        }
+        MN_DrTextA(ShadersNames[i], ShadersMenu.x,
+                   ShadersMenu.y + ITEM_HEIGHT * i);
+    }
 }
 
 static Menu_t OptionsMenu = {
@@ -1798,6 +1892,14 @@ boolean MN_Responder(event_t * event)
     if (!FileMenuKeySteal)
     {
         item = &CurrentMenu->items[CurrentItPos];
+
+        // [CDVK] Shader browser: the rows are a sliding window over
+        // the full preset list - scroll it here; the generic wrap
+        // below can only reach the rows of the current window.
+        if (CurrentMenu == &ShadersMenu && ShadersScroll(key))
+        {
+            return true;
+        }
 
         if (key == key_menu_down)            // Next menu item
         {
