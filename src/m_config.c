@@ -1595,6 +1595,62 @@ static default_t extra_defaults_list[] =
     CONFIG_VARIABLE_INT(joyb_invright),
 
     //!
+    // @game strife
+    // Joystick virtual button to use a medkit.
+    //
+
+    CONFIG_VARIABLE_INT(joyb_usehealth),
+
+    //!
+    // @game strife
+    // Joystick virtual button to query the inventory.
+    //
+
+    CONFIG_VARIABLE_INT(joyb_invquery),
+
+    //!
+    // @game strife
+    // Joystick virtual button to view the mission objectives.
+    //
+
+    CONFIG_VARIABLE_INT(joyb_mission),
+
+    //!
+    // @game strife
+    // Joystick virtual button to bring up the inventory popup.
+    //
+
+    CONFIG_VARIABLE_INT(joyb_invpop),
+
+    //!
+    // @game strife
+    // Joystick virtual button to bring up the keys popup.
+    //
+
+    CONFIG_VARIABLE_INT(joyb_invkey),
+
+    //!
+    // @game strife
+    // Joystick virtual button to drop the selected inventory item.
+    //
+
+    CONFIG_VARIABLE_INT(joyb_invdrop),
+
+    //!
+    // @game strife
+    // Joystick virtual button to jump to the first inventory item.
+    //
+
+    CONFIG_VARIABLE_INT(joyb_invhome),
+
+    //!
+    // @game strife
+    // Joystick virtual button to jump to the last inventory item.
+    //
+
+    CONFIG_VARIABLE_INT(joyb_invend),
+
+    //!
     // @game heretic hexen
     // Joystick virtual button to fly up.
     //

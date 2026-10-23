@@ -407,8 +407,9 @@ Windows, and `libslang-vk` as a shared DLL.
   `9e593bb18ea69cc5095e012465dcd675a822ed0d`) so the manifest resolves
   deterministically.
 
-[Unreleased]: https://github.com/VTSTech/chocolate-doom-vk/compare/3.0.1...HEAD
-[v3.0.1]: https://github.com/VTSTech/chocolate-doom-vk/compare/v3...3.0.1
+[Unreleased]: https://github.com/VTSTech/chocolate-doom-vk/compare/3.0.2...HEAD
+[3.0.2]: https://github.com/VTSTech/chocolate-doom-vk/compare/3.0.1...3.0.2
+[3.0.1]: https://github.com/VTSTech/chocolate-doom-vk/compare/v3...3.0.1
 [v3]: https://github.com/VTSTech/chocolate-doom-vk/compare/v2...v3
 [v2]: https://github.com/VTSTech/chocolate-doom-vk/compare/v1...v2
 [v1]: https://github.com/VTSTech/chocolate-doom-vk/releases/tag/v1
