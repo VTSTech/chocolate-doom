@@ -1,6 +1,6 @@
 # Chocolate Doom VK
 
-[![CI Build Status](https://github.com/VTSTech/chocolate-doom-vk/actions/workflows/main.yml/badge.svg)](https://github.com/VTSTech/chocolate-doom-vk/actions/workflows/main.yml) [![GitHub Downloads](https://img.shields.io/github/downloads/VTSTech/chocolate-doom-vk/total?label=GitHub%20Downloads&logo=github)](https://github.com/VTSTech/chocolate-doom-vk/releases) [![Latest Commit](https://img.shields.io/github/last-commit/VTSTech/chocolate-doom-vk/master?label=Latest%20Commit&logo=github)](https://github.com/VTSTech/chocolate-doom-vk/commits/master)
+[![CI Build Status](https://github.com/VTSTech/chocolate-doom-vk/actions/workflows/vk-shaders.yml/badge.svg)](https://github.com/VTSTech/chocolate-doom-vk/actions/workflows/vk-shaders.yml) [![GitHub Downloads](https://img.shields.io/github/downloads/VTSTech/chocolate-doom-vk/total?label=GitHub%20Downloads&logo=github)](https://github.com/VTSTech/chocolate-doom-vk/releases) [![Latest Commit](https://img.shields.io/github/last-commit/VTSTech/chocolate-doom-vk/master?label=Latest%20Commit&logo=github)](https://github.com/VTSTech/chocolate-doom-vk/commits/master)
 
 Chocolate Doom VK is a fork of
 [Chocolate Doom](https://github.com/chocolate-doom/chocolate-doom) that
