@@ -199,6 +199,12 @@ static const struct
  
 #define NUMKEYS		256 
 #define MAX_JOY_BUTTONS 20
+// [CDVK] Width of the joystick button bitmask delivered by
+// i_joystick.c (bit i of ev_joystick data1 = virtual button i).
+// Keep in sync with MAX_VIRTUAL_BUTTONS in i_joystick.h.
+// MAX_JOY_BUTTONS above keeps its vanilla value of 20: that is
+// the joyb_speed always-run threshold.
+#define MAX_JOY_BITMASK 25
 
 static boolean  gamekeydown[NUMKEYS]; 
 static int      turnheld;		// for accelerative turning 
@@ -222,7 +228,7 @@ static int      joyxmove;
 static int      joyymove;
 static int      joystrafemove;
 static int      joylook;
-static boolean  joyarray[MAX_JOY_BUTTONS + 1]; 
+static boolean  joyarray[MAX_JOY_BITMASK + 1]; 
 static boolean *joybuttons = &joyarray[1];		// allow [-1] 
  
 static int      savegameslot = 6; // [STRIFE] initialized to 6
@@ -780,7 +786,7 @@ static void SetJoyButtons(unsigned int buttons_mask)
     int i;
     player_t *const player = &players[consoleplayer];
 
-    for (i=0; i<MAX_JOY_BUTTONS; ++i)
+    for (i=0; i<MAX_JOY_BITMASK; ++i)
     {
         int button_on = (buttons_mask & (1 << i)) != 0;
 

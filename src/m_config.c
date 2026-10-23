@@ -1495,6 +1495,54 @@ static default_t extra_defaults_list[] =
     //
 
     CONFIG_VARIABLE_INT(joystick_physical_button16),
+    //!
+    // The physical joystick button that corresponds to joystick
+    // virtual button #17.
+    //
+
+    CONFIG_VARIABLE_INT(joystick_physical_button17),
+    //!
+    // The physical joystick button that corresponds to joystick
+    // virtual button #18.
+    //
+
+    CONFIG_VARIABLE_INT(joystick_physical_button18),
+    //!
+    // The physical joystick button that corresponds to joystick
+    // virtual button #19.
+    //
+
+    CONFIG_VARIABLE_INT(joystick_physical_button19),
+    //!
+    // The physical joystick button that corresponds to joystick
+    // virtual button #20.
+    //
+
+    CONFIG_VARIABLE_INT(joystick_physical_button20),
+    //!
+    // The physical joystick button that corresponds to joystick
+    // virtual button #21.
+    //
+
+    CONFIG_VARIABLE_INT(joystick_physical_button21),
+    //!
+    // The physical joystick button that corresponds to joystick
+    // virtual button #22.
+    //
+
+    CONFIG_VARIABLE_INT(joystick_physical_button22),
+    //!
+    // The physical joystick button that corresponds to joystick
+    // virtual button #23.
+    //
+
+    CONFIG_VARIABLE_INT(joystick_physical_button23),
+    //!
+    // The physical joystick button that corresponds to joystick
+    // virtual button #24.
+    //
+
+    CONFIG_VARIABLE_INT(joystick_physical_button24),
 
     //!
     // If non-zero, use the SDL_GameController interface instead of the

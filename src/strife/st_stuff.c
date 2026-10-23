@@ -295,7 +295,7 @@ static char st_msgbuf[ST_MSGWIDTH];
 // The bound buttons are the joyb_* twins of the Strife-only keys; both
 // can be set in the setup tool under Gamepad/Joystick -> More controls...
 
-#define ST_MAX_JOYBUTTON 20     // keep in sync with g_game.c MAX_JOY_BUTTONS
+#define ST_MAX_JOYBUTTON 25     // keep in sync with g_game.c MAX_JOY_BITMASK
 
 static boolean ST_JoyButtonEdge(event_t* ev, int joyb, int index)
 {

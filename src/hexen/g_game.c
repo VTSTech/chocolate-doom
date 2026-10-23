@@ -157,11 +157,17 @@ int dclicktime, dclickstate, dclicks;
 int dclicktime2, dclickstate2, dclicks2;
 
 #define MAX_JOY_BUTTONS 20
+// [CDVK] Width of the joystick button bitmask delivered by
+// i_joystick.c (bit i of ev_joystick data1 = virtual button i).
+// Keep in sync with MAX_VIRTUAL_BUTTONS in i_joystick.h.
+// MAX_JOY_BUTTONS above keeps its vanilla value of 20: that is
+// the joyb_speed always-run threshold.
+#define MAX_JOY_BITMASK 25
 
 int joyxmove, joyymove;         // joystick values are repeated
 int joystrafemove;
 int joylook;
-boolean joyarray[MAX_JOY_BUTTONS + 1];
+boolean joyarray[MAX_JOY_BITMASK + 1];
 boolean *joybuttons = &joyarray[1];     // allow [-1]
 
 int savegameslot;
@@ -787,7 +793,7 @@ static void SetJoyButtons(unsigned int buttons_mask)
 
     plr = &players[consoleplayer];
 
-    for (i=0; i<MAX_JOY_BUTTONS; ++i)
+    for (i=0; i<MAX_JOY_BITMASK; ++i)
     {
         int button_on = (buttons_mask & (1 << i)) != 0;
 
