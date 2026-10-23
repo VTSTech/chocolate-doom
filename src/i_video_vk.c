@@ -1153,6 +1153,16 @@ void I_VK_RequestCapture(void)
     vk_shot_request = true;
 }
 
+// SPIR-V disk-cache callbacks (definitions live below, next to the
+// cache arena). Forward-declared here because I_VK_SetPreset wires
+// them into the preset options before their definitions appear;
+// MSVC (C2065) and GCC 14+ reject the implicit declarations.
+static int VK_SpirvCacheLoad(const char *key, slangvk_spirv *out,
+                             void *user_data);
+static void VK_SpirvCacheStore(const char *key,
+                               const slangvk_spirv *spirv,
+                               void *user_data);
+
 // SHADERS browser: hot-swap the active preset for another one. The swap
 // is prepare-then-commit: the new preset is parsed and a complete new
 // chain is built against the live swapchain BEFORE the old objects are

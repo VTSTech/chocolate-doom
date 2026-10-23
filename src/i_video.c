@@ -1784,7 +1784,7 @@ const char **I_ShaderPresets(int *count)
     //    a separator (M_SetConfigDir); add one when it doesn't.
     if (configdir != NULL && configdir[0] != '\0')
     {
-        n = strlen(configdir);
+        n = (int) strlen(configdir);
         if (configdir[n-1] == '/' || configdir[n-1] == '\\')
         {
             M_snprintf(buf, sizeof(buf), "%sshaders", configdir);
