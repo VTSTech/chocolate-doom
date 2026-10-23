@@ -1153,6 +1153,98 @@ void I_VK_RequestCapture(void)
     vk_shot_request = true;
 }
 
+// SHADERS browser: hot-swap the active preset for another one. The swap
+// is prepare-then-commit: the new preset is parsed and a complete new
+// chain is built against the live swapchain BEFORE the old objects are
+// touched, so a bad or missing file can never leave the renderer
+// chainless - the worst case is the current shader staying on screen.
+// Device, swapchain and input image are untouched; only the
+// chain/preset pair is replaced, a far smaller surface than the full
+// backend restart the old SHADERS toggle attempted (whose removal this
+// design deliberately respects).
+boolean I_VK_SetPreset(const char *path)
+{
+    slangvk_preset_options po;
+    slangvk_preset *new_preset = NULL;
+    slangvk_chain *new_chain = NULL;
+    uint32_t pc;
+
+    if (!vk_active || path == NULL || path[0] == '\0')
+    {
+        return false;
+    }
+    if (strcmp(path, shader_preset) == 0)
+    {
+        I_OverlayFlash("shader %s (already active)", M_BaseName(path));
+        return true;
+    }
+
+    memset(&po, 0, sizeof(po));
+    if (VK_CacheInit())
+    {
+        po.spirv_cache.load = VK_SpirvCacheLoad;
+        po.spirv_cache.store = VK_SpirvCacheStore;
+    }
+
+    // 1) Parse + compile the new preset. The SPIR-V disk cache applies
+    //    here exactly like on a warm start, so switching back to a
+    //    preset seen earlier in the session is milliseconds. A broken
+    //    preset fails this step and nothing else.
+    if (slangvk_preset_load(vk_device, path, &po, &new_preset) != SLANGVK_OK)
+    {
+        I_LogPrintf("I_VK: browser preset '%s' failed to load: %s\n",
+               path, slangvk_last_error());
+        I_OverlayFlash("preset failed to load");
+        return false;
+    }
+
+    // 2) Build the new chain against the current swapchain extent and
+    //    format. The two chains do not share resources, so they can
+    //    coexist for the duration of this call.
+    if (slangvk_chain_create(vk_device, new_preset, vk_swap_extent.width,
+                             vk_swap_extent.height, vk_swap_format,
+                             &new_chain) != SLANGVK_OK)
+    {
+        I_LogPrintf("I_VK: browser chain for '%s' failed: %s\n",
+               path, slangvk_last_error());
+        I_OverlayFlash("shader chain failed");
+        slangvk_preset_destroy(new_preset);
+        return false;
+    }
+
+    // 3) Commit: quiesce the device (frames in flight still reference
+    //    the old chain), then swap the pair and drop the old objects in
+    //    the c.h destroy order.
+    if (vk_ldevice != VK_NULL_HANDLE && vkDeviceWaitIdle_ != NULL)
+    {
+        vkDeviceWaitIdle_(vk_ldevice);
+    }
+    if (vk_chain != NULL)
+    {
+        slangvk_chain_destroy(vk_chain);
+    }
+    if (vk_preset != NULL)
+    {
+        slangvk_preset_destroy(vk_preset);
+    }
+    vk_chain = new_chain;
+    vk_preset = new_preset;
+
+    slangvk_preset_pass_count(vk_preset, &pc);
+    vk_pass_count = (int) pc;
+
+    // Persist through the config binding (i_video.c binds "shader" to
+    // this pointer; the old string is intentionally not freed - it may
+    // be myargv or config-file memory we do not own).
+    shader_preset = M_StringDuplicate(path);
+
+    I_LogPrintf("I_VK: shader swapped to '%s' (%u pass%s)\n",
+           path, pc, pc == 1 ? "" : "es");
+    I_OverlayFlash("shader %s (%u pass%s)", M_BaseName(path),
+                   pc, pc == 1 ? "" : "es");
+    return true;
+}
+
 // ------------------------------------------------------------------
 // Teardown (idempotent; also used to clean up partial init on fallback)
 // ------------------------------------------------------------------
@@ -1539,6 +1631,7 @@ void I_VK_SetPalette(const SDL_Color *palette) { (void) palette; }
 void I_VK_FlagResize(void)               { }
 void I_VK_ToggleAspect(void)             { }
 void I_VK_CycleBase(void)                { }
+boolean I_VK_SetPreset(const char *path) { (void) path; return false; }
 
 const char *I_VK_AspectName(void)
 {

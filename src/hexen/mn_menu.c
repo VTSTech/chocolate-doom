@@ -63,6 +63,7 @@ typedef enum
     MENU_SKILL,
     MENU_OPTIONS,
     MENU_ADVANCED,
+    MENU_SHADERS,
     MENU_OPTIONS2,
     MENU_FILES,
     MENU_LOAD,
@@ -106,7 +107,11 @@ static void SCSfxVolume(int option);
 static void SCMusicVolume(int option);
 static void SCScreenSize(int option);
 static void SCFov(int option);         // [CDVK] FOV
-static void SCShadersPlaceholder(int option);   // [CDVK] SHADERS row (placeholder)
+static void SCShaders(int option);     // [CDVK] SHADERS browser
+static void SCShadersPick(int option);
+static void SCShadersPage(int option);
+static void SCShadersNone(int option);
+static void DrawShadersMenu(void);
 static boolean SCNetCheck(int option);
 static void SCNetCheck2(int option);
 static void SCLoadGame(int option);
@@ -261,7 +266,7 @@ static MenuItem_t OptionsItems[] = {
     {ITT_EFUNC, "MESSAGES : ", SCMessages, 0, MENU_NONE},
     {ITT_LRFUNC, "MOUSE SENSITIVITY", SCMouseSensi, 0, MENU_NONE},
     {ITT_EMPTY, NULL, NULL, 0, MENU_NONE},
-    {ITT_LRFUNC, "SHADERS : ", SCShadersPlaceholder, 0, MENU_NONE},  // [CDVK] placeholder (was FOV)
+    {ITT_EFUNC, "SHADERS...", SCShaders, 0, MENU_NONE},  // [CDVK] browser (was FOV row)
     {ITT_EMPTY, NULL, NULL, 0, MENU_NONE},
     {ITT_SETMENU, "MORE...", NULL, 0, MENU_OPTIONS2}
 };
@@ -278,6 +283,205 @@ static Menu_t AdvancedMenu = {
     0,
     MENU_OPTIONS
 };
+//---------------------------------------------------------------------------
+//
+// [CDVK] SHADERS browser (occupies the old SHADERS placeholder row).
+// Pages through every .slangp found by I_ShaderPresets() - the active
+// preset's own folder, shaders/ beside the executable, shaders/ in the
+// config dir - and applies a pick with I_SelectShaderPreset(): a live
+// hot-swap when the Vulkan path is up (prepare-then-commit inside
+// i_video_vk.c), or a persist-for-next-run selection on the classic
+// renderer. There is deliberately no "shaders off" row.
+//
+//---------------------------------------------------------------------------
+
+#define SHADERS_PAGE_ROWS 7    // preset rows per page (an 8th row is the pager)
+
+static MenuItem_t ShadersItems[SHADERS_PAGE_ROWS + 2];
+static char ShadersNames[SHADERS_PAGE_ROWS + 1][24];
+
+static Menu_t ShadersMenu = {
+    88, 30,
+    DrawShadersMenu,
+    0,                 // itemCount, rebuilt on every open/page flip
+    ShadersItems,
+    0,
+    MENU_OPTIONS
+};
+
+static const char **shaders_list = NULL;    // scanned presets (i_video.c)
+static int shaders_count = 0;
+static int shaders_page = 0;
+
+// Fill ShadersItems[] for shaders_page. Names are copied into static
+// buffers (the menu holds raw pointers), trimmed to the FontB width
+// the 320px screen allows, " *" marks the active preset.
+static void ShadersBuildPage(void)
+{
+    const char *cur = I_CurrentShaderPreset();
+    int first = shaders_page * SHADERS_PAGE_ROWS;
+    int rows = shaders_count - first;
+    int i;
+
+    if (rows > SHADERS_PAGE_ROWS)
+    {
+        rows = SHADERS_PAGE_ROWS;
+    }
+    if (rows < 0)
+    {
+        rows = 0;
+    }
+    for (i = 0; i < rows; i++)
+    {
+        const char *path = shaders_list[first + i];
+        const char *base = M_BaseName(path);
+        char *dot;
+        size_t len;
+
+        M_snprintf(ShadersNames[i], sizeof(ShadersNames[i]), "%s", base);
+        dot = strrchr(ShadersNames[i], '.');
+        if (dot != NULL)
+        {
+            *dot = '\0';
+        }
+        len = strlen(ShadersNames[i]);
+        while (len > 2 && MN_TextBWidth(ShadersNames[i]) > 320 - 88 - 16)
+        {
+            ShadersNames[i][--len] = '\0';
+        }
+        if (strcmp(path, cur) == 0)
+        {
+            M_snprintf(ShadersNames[i] + len,
+                       sizeof(ShadersNames[i]) - len, " *");
+        }
+        ShadersItems[i].type = ITT_EFUNC;
+        ShadersItems[i].text = ShadersNames[i];
+        ShadersItems[i].func = SCShadersPick;
+        ShadersItems[i].option = first + i;
+        ShadersItems[i].menu = MENU_NONE;
+    }
+    if (rows == 0)
+    {
+        // Empty folder: one selectable shrug row (the cursor needs a
+        // non-ITT_EMPTY home or the up/down do-while spins forever)
+        // plus a drawn-but-unselectable hint line.
+        ShadersItems[0].type = ITT_EFUNC;
+        ShadersItems[0].text = "(NO SHADERS FOUND)";
+        ShadersItems[0].func = SCShadersNone;
+        ShadersItems[0].option = 0;
+        ShadersItems[0].menu = MENU_NONE;
+        ShadersItems[1].type = ITT_EMPTY;
+        ShadersItems[1].text = "PUT .SLANGP FILES IN SHADERS/";
+        ShadersItems[1].func = NULL;
+        ShadersItems[1].option = 0;
+        ShadersItems[1].menu = MENU_NONE;
+        ShadersMenu.itemCount = 2;
+        return;
+    }
+    if (first + rows < shaders_count)
+    {
+        ShadersItems[rows].type = ITT_EFUNC;
+        ShadersItems[rows].text = "MORE...";
+        ShadersItems[rows].func = SCShadersPage;
+        ShadersItems[rows].option = 0;
+        ShadersItems[rows].menu = MENU_NONE;
+        rows++;
+    }
+    ShadersMenu.itemCount = rows;
+}
+
+// Open the browser from the Options menu's SHADERS row.
+static void SCShaders(int option)
+{
+    const char *cur;
+    int i;
+
+    option = 0;
+    shaders_list = I_ShaderPresets(&shaders_count);
+    shaders_page = 0;
+    i = 0;
+    cur = I_CurrentShaderPreset();
+    while (i < shaders_count && strcmp(shaders_list[i], cur) != 0)
+    {
+        i++;
+    }
+    if (i < shaders_count)
+    {
+        shaders_page = i / SHADERS_PAGE_ROWS;
+        ShadersMenu.oldItPos = i % SHADERS_PAGE_ROWS;
+    }
+    else
+    {
+        ShadersMenu.oldItPos = 0;
+    }
+    ShadersBuildPage();
+    if (ShadersMenu.oldItPos >= ShadersMenu.itemCount)
+    {
+        ShadersMenu.oldItPos = 0;
+    }
+    SetMenu(MENU_SHADERS);
+    S_StartSound(NULL, SFX_CHAT);
+    return;
+}
+
+// Enter on a preset row: apply it (option carries the preset index).
+static void SCShadersPick(int option)
+{
+    if (option < 0 || option >= shaders_count)
+    {
+        return;
+    }
+    if (I_SelectShaderPreset(shaders_list[option]))
+    {
+        // Live swap; the stats overlay already flashed the preset name.
+    }
+    else if (I_VulkanActive())
+    {
+        // A live swap that failed: the overlay flash says why.
+        S_StartSound(NULL, SFX_CHAT);
+    }
+    else
+    {
+        P_SetMessage(&players[consoleplayer],
+                     "SHADER SAVED - RESTART TO APPLY", true);
+    }
+    return;
+}
+
+// Enter on the MORE... row: next page (wraps).
+static void SCShadersPage(int option)
+{
+    option = 0;
+    if ((shaders_page + 1) * SHADERS_PAGE_ROWS >= shaders_count)
+    {
+        shaders_page = 0;
+    }
+    else
+    {
+        shaders_page++;
+    }
+    ShadersMenu.oldItPos = 0;
+    ShadersBuildPage();
+    CurrentItPos = 0;
+    return;
+}
+
+// Enter on the empty-folder row.
+static void SCShadersNone(int option)
+{
+    option = 0;
+    S_StartSound(NULL, SFX_CHAT);
+    return;
+}
+
+//
+// Browser draw: a centered SHADERS heading above the auto-drawn rows
+// (MN_Drawer draws item text and the M_SLCTR cursor itself).
+//
+static void DrawShadersMenu(void)
+{
+    MN_DrTextB("SHADERS", 160 - MN_TextBWidth("SHADERS") / 2, 10);
+}
 
 static Menu_t OptionsMenu = {
     88, 30,
@@ -310,6 +514,7 @@ static Menu_t *Menus[] = {
     &SkillMenu,
     &OptionsMenu,
     &AdvancedMenu,
+    &ShadersMenu,
     &Options2Menu,
     &FilesMenu,
     &LoadMenu,
@@ -1198,21 +1403,12 @@ static void SCScreenSize(int option)
 
 //---------------------------------------------------------------------------
 //
-// PROC SCShadersPlaceholder  [CDVK]
+// PROC SCShaders / browser helpers  [CDVK]
 //
-// SHADERS row placeholder (where FOV used to sit; FOV moved to the
-// ADVANCED submenu). Turning shaders off was removed: the classic
-// SDL2 fallback is not presentation-safe, so the Vulkan + slang path
-// is always used when it is available. F5 stays suicide in Hexen.
+// The SHADERS browser: see the block above ShadersMenu for the design.
 //
 //---------------------------------------------------------------------------
 
-static void SCShadersPlaceholder(int option)
-{
-    option = 0;
-    S_StartSound(NULL, SFX_CHAT);
-    return;
-}
 
 //---------------------------------------------------------------------------
 //

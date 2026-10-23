@@ -112,6 +112,12 @@ const char *I_VK_AspectName(void);
 void I_VK_RequestCapture(void);
 void I_VK_CycleBase(void);
 
+// SHADERS browser: hot-swap the active preset for the file at `path`.
+// Prepare-then-commit (a failed preset leaves the current shader on
+// screen); persists the choice through the "shader" config binding.
+// Returns false when the Vulkan path is not live or the swap failed.
+boolean I_VK_SetPreset(const char *path);
+
 // From I_FinishUpdate: feed + render + present one frame.
 void I_VK_FinishUpdate(void);
 

@@ -113,6 +113,30 @@ extern int png_screenshots;
 extern char *window_position;
 void I_GetWindowPosition(int *x, int *y, int w, int h);
 
+// [CDVK] SHADERS browser support (menus in all four games):
+//
+// I_ShaderPresets scans the browser's preset folders and returns a
+// shared array of full paths with *count set to its length (0 when
+// nothing was found). Re-scanned on every call, so presets dropped
+// into a folder mid-session appear on the next browser open. Scan
+// order: the active preset's own folder, <exedir>/shaders,
+// <configdir>/shaders; duplicates by exact path are dropped.
+//
+// I_CurrentShaderPreset returns the active preset path ("" when none)
+// so the browser can mark the current row.
+//
+// I_SelectShaderPreset applies a pick: a live hot-swap (and config
+// persist) when the Vulkan path is up, a persist-only "next run"
+// selection otherwise. Returns true only when the swap went live.
+//
+// I_VulkanActive mirrors I_VK_Active() (i_video_vk.h) for menu code:
+// hexen's h2def.h declares `byte *screen`, so the game menus must not
+// include i_video_vk.h (which declares the SDL_Window * form).
+const char **I_ShaderPresets(int *count);
+const char *I_CurrentShaderPreset(void);
+boolean I_SelectShaderPreset(const char *path);
+boolean I_VulkanActive(void);
+
 // Joystic/gamepad hysteresis
 extern unsigned int joywait;
 

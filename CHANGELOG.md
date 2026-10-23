@@ -6,10 +6,33 @@ living in upstream's own history and are not tracked here.
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions: this repository's release tags (`v3` ships as package
-version `3.0.0`; point releases tag as `v3.0.<n>`, package version
+version `3.0.0`; point releases tag as `3.0.<n>`, package version
 matching).
 
 ## [Unreleased]
+
+### Added
+- The SHADERS row is now a **shader browser** in all four games. It
+  pages through every `.slangp` preset found in the active preset's
+  own folder, `shaders/` beside the executable and `shaders/` in the
+  config dir — presets dropped into either folder appear the next
+  time the browser opens, no restart needed. It opens on the active
+  preset (marked `*`), pages with a `MORE...` row, and Enter applies
+  the highlighted entry. With the Vulkan path live the swap is hot:
+  the new preset is parsed and a complete new chain built against the
+  live swapchain *before* the old chain/preset pair is destroyed
+  (prepare-then-commit), so a broken or missing preset cannot leave
+  the renderer chainless — the worst case is the current shader
+  staying on screen, with the reason flashed on the stats overlay and
+  logged. Device, swapchain and input image are untouched; only the
+  chain/preset pair is replaced, deliberately a far smaller surface
+  than the full backend restart whose removal was its own fix. The
+  SPIR-V disk cache applies to swaps exactly like warm starts, so
+  revisiting a preset seen earlier in the session is milliseconds.
+  On the classic renderer the pick persists (the `shader` config key,
+  and a stale `usevulkan = 0` is re-enabled exactly like a `-shader`
+  command-line pass) and a message notes that a restart applies it;
+  there is still no "shaders off" row.
 
 ## [v3.0.1] - 2026-10-22
 
@@ -345,8 +368,8 @@ Windows, and `libslang-vk` as a shared DLL.
   `9e593bb18ea69cc5095e012465dcd675a822ed0d`) so the manifest resolves
   deterministically.
 
-[Unreleased]: https://github.com/VTSTech/chocolate-doom-vk/compare/v3.0.1...HEAD
-[v3.0.1]: https://github.com/VTSTech/chocolate-doom-vk/compare/v3...v3.0.1
+[Unreleased]: https://github.com/VTSTech/chocolate-doom-vk/compare/3.0.1...HEAD
+[v3.0.1]: https://github.com/VTSTech/chocolate-doom-vk/compare/v3...3.0.1
 [v3]: https://github.com/VTSTech/chocolate-doom-vk/compare/v2...v3
 [v2]: https://github.com/VTSTech/chocolate-doom-vk/compare/v1...v2
 [v1]: https://github.com/VTSTech/chocolate-doom-vk/releases/tag/v1

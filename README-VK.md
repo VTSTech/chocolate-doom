@@ -99,6 +99,7 @@ Setting `shader` (config or `-shader <path>`) is what activates the
 Vulkan path. This fork ships **no presets by design** — clone
 [libretro/slang-shaders](https://github.com/libretro/slang-shaders) and
 point `shader` at any `.slangp` in it; `-shader` accepts any path.
+Presets can also be browsed in-game — see "Shader browser" below.
 
 | Flag | Effect |
 |------|--------|
@@ -113,6 +114,36 @@ point `shader` at any `.slangp` in it; `-shader` accepts any path.
 | `-novkstats` | Start with the stats overlay off (`vkstats = 0` persists) |
 | `-vkdebug` | Enable the Vulkan validation layer for this run |
 | `-vkcapture <n>` | Dump the n-th presented frame to `vkframe.tga` |
+
+## Shader browser (in-game menu)
+
+The **SHADERS** row in the Options menu opens a preset browser in all
+four games. It lists every `.slangp` found in three places, in this
+order: the active preset's own folder, `shaders/` beside the
+executable, and `shaders/` inside the config dir — drop new presets
+into either folder and they appear the next time the browser opens,
+no restart needed. The list pages with a `MORE...` row when it does
+not fit, the active preset is marked with `*`, and Enter applies the
+highlighted preset:
+
+- **Vulkan path live** — the swap is hot. The new preset is parsed and
+  a complete new chain built against the live swapchain *before* the
+  old chain/preset pair is destroyed (prepare-then-commit), so a
+  broken or missing preset can never leave the renderer chainless: the
+  worst case is the current shader staying on screen, with the reason
+  flashed on the stats overlay and written to `gpu-scaler.log`. The
+  device, swapchain and input image are untouched; only the
+  chain/preset pair is replaced. The SPIR-V disk cache applies to
+  swaps exactly like warm starts — revisiting a preset seen earlier in
+  the session is milliseconds.
+- **Classic renderer** — the pick persists (the `shader` config key,
+  and a stale `usevulkan = 0` is re-enabled, exactly like passing
+  `-shader` on the command line) and a message notes that a restart
+  applies it.
+
+The choice persists in the `shader` config key either way. There is
+deliberately no "shaders off" row — see the changelog for why the
+classic fallback path is not presentation-safe.
 
 ## On-screen stats overlay
 

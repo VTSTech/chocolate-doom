@@ -42,6 +42,7 @@
 #include "i_timer.h"
 #include "i_video.h"
 #include "i_video_vk.h"
+#include "i_glob.h"
 #include "m_argv.h"
 #include "m_config.h"
 #include "m_misc.h"
@@ -1692,6 +1693,149 @@ void I_InitGraphics(void)
     // Call I_ShutdownGraphics on quit
 
     I_AtExit(I_ShutdownGraphics, true);
+}
+
+
+// ------------------------------------------------------------------
+// [CDVK] SHADERS browser support. Each game's menu lists what this
+// scans and hands a pick back to I_SelectShaderPreset(). Directories,
+// in order: the active preset's own folder (its siblings are the most
+// likely next pick), then "shaders" beside the executable, then
+// "shaders" in the config dir - the drop-in folders, mirroring where
+// gpu-scaler.log and shader-cache live.
+// ------------------------------------------------------------------
+
+#define I_SHADER_MAX_PRESETS 64
+
+static const char *shader_presets[I_SHADER_MAX_PRESETS];
+static int shader_presets_n = 0;
+
+// Append one directory's *.slangp files (full paths from I_StartGlob),
+// deduped against what earlier directories already contributed.
+static void ScanShaderDir(const char *dir)
+{
+    glob_t *glob;
+    const char *path;
+
+    if (dir == NULL || dir[0] == '\0')
+    {
+        return;
+    }
+    glob = I_StartGlob(dir, "*.slangp", GLOB_FLAG_NOCASE | GLOB_FLAG_SORTED);
+    if (glob == NULL)
+    {
+        return;
+    }
+    while ((path = I_NextGlob(glob)) != NULL
+           && shader_presets_n < I_SHADER_MAX_PRESETS)
+    {
+        int i;
+        boolean dup = false;
+        for (i = 0; i < shader_presets_n; ++i)
+        {
+            if (strcmp(shader_presets[i], path) == 0)
+            {
+                dup = true;
+                break;
+            }
+        }
+        if (!dup)
+        {
+            shader_presets[shader_presets_n++] = M_StringDuplicate(path);
+        }
+    }
+    I_EndGlob(glob);
+}
+
+const char **I_ShaderPresets(int *count)
+{
+    char *dir;
+    char buf[512];
+    int n;
+
+    // Re-scan on every call (a few readdirs): presets dropped into the
+    // folder mid-session show up the next time the browser opens. The
+    // previous batch is freed first.
+    for (n = 0; n < shader_presets_n; ++n)
+    {
+        free((char *) shader_presets[n]);
+        shader_presets[n] = NULL;
+    }
+    shader_presets_n = 0;
+
+    // 1) Siblings of the active preset ("shaders/foo.slangp" ->
+    //    "shaders"; a bare filename has no folder to scan).
+    dir = M_DirName(shader_preset != NULL ? shader_preset : "");
+    if (dir != NULL && dir[0] != '\0'
+        && strcmp(dir, ".") != 0)
+    {
+        ScanShaderDir(dir);
+    }
+    free(dir);
+
+    // 2) <exedir>/shaders - exedir already ends in a separator.
+    if (exedir != NULL)
+    {
+        M_snprintf(buf, sizeof(buf), "%sshaders", exedir);
+        ScanShaderDir(buf);
+    }
+
+    // 3) <configdir>/shaders - configdir "conventionally" ends in
+    //    a separator (M_SetConfigDir); add one when it doesn't.
+    if (configdir != NULL && configdir[0] != '\0')
+    {
+        n = strlen(configdir);
+        if (configdir[n-1] == '/' || configdir[n-1] == '\\')
+        {
+            M_snprintf(buf, sizeof(buf), "%sshaders", configdir);
+        }
+        else
+        {
+            M_snprintf(buf, sizeof(buf), "%s%cshaders", configdir,
+                       DIR_SEPARATOR);
+        }
+        ScanShaderDir(buf);
+    }
+
+    if (count != NULL)
+    {
+        *count = shader_presets_n;
+    }
+    return shader_presets;
+}
+
+const char *I_CurrentShaderPreset(void)
+{
+    return shader_preset != NULL ? shader_preset : "";
+}
+
+// Menu-facing view of I_VK_Active(): keeps i_video_vk.h (which declares
+// SDL_Window *screen) out of the game menus - hexen's h2def.h declares
+// the byte * form and the two cannot coexist in one translation unit.
+boolean I_VulkanActive(void)
+{
+    return I_VK_Active();
+}
+
+// Apply a browser pick. With the Vulkan path live this hot-swaps the
+// preset (prepare-then-commit inside I_VK_SetPreset) and persists it;
+// on the classic renderer it only persists - picking a shader is
+// explicit intent, so a stale usevulkan = 0 is re-enabled for the next
+// run exactly like a -shader command-line pass. Returns true only when
+// the swap went live.
+boolean I_SelectShaderPreset(const char *path)
+{
+    if (path == NULL || path[0] == '\0')
+    {
+        return false;
+    }
+    if (I_VK_Active())
+    {
+        return I_VK_SetPreset(path);
+    }
+    usevulkan = 1;
+    shader_preset = M_StringDuplicate(path);
+    return false;
 }
 
 // Bind all variables controlling video options into the configuration

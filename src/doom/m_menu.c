@@ -186,7 +186,11 @@ static void M_ChangeMessages(int choice);
 static void M_ChangeSensitivity(int choice);
 static void M_ChangeFOV(int choice);		// [CDVK] FOV
 static void M_Advanced(int choice);		// [CDVK] ADVANCED submenu
-static void M_ShadersPlaceholder(int choice);	// [CDVK] SHADERS row (placeholder)
+static void M_Shaders(int choice);		// [CDVK] SHADERS browser
+static void M_ShadersPick(int choice);		// [CDVK] browser rows
+static void M_ShadersPage(int choice);
+static void M_ShadersNone(int choice);
+static void M_DrawShadersBrowser(void);
 static void M_SfxVol(int choice);
 static void M_MusicVol(int choice);
 static void M_SizeDisplay(int choice);
@@ -344,7 +348,7 @@ menuitem_t OptionsMenu[]=
 {
     {1,"",		M_Advanced,'a'},	// [CDVK] ADVANCED (was End Game)
     {1,"M_MESSG",	M_ChangeMessages,'m'},
-    {1,"",		M_ShadersPlaceholder,'h'},	// [CDVK] SHADERS placeholder (was Graphic Detail)
+    {1,"",		M_Shaders,'h'},	// [CDVK] SHADERS browser (was Graphic Detail)
     {2,"M_SCRNSZ",	M_SizeDisplay,'s'},
     {-1,"",0,'\0'},
     {2,"M_MSENS",	M_ChangeSensitivity,'m'},
@@ -1060,16 +1064,242 @@ void M_Advanced(int choice)
 }
 
 //
-// [CDVK] SHADERS row placeholder. Turning shaders off was removed: the
-// classic SDL2 fallback is not presentation-safe (stale frame content
-// keeps being overwritten), so the Vulkan + slang path is always used
-// when it is available. The row stays as a named placeholder for a
-// future use.
+// [CDVK] SHADERS browser (occupies the old SHADERS placeholder row in
+// the Options menu). Pages through every .slangp preset found by
+// I_ShaderPresets() - the active preset's own folder, shaders/ beside
+// the executable, shaders/ in the config dir - and applies a pick with
+// I_SelectShaderPreset(): a live hot-swap when the Vulkan path is up
+// (prepare-then-commit inside i_video_vk.c; a broken preset leaves the
+// current shader on screen), or a persist-for-next-run selection on
+// the classic renderer. There is deliberately no "shaders off" row:
+// that removal was its own fix.
 //
-void M_ShadersPlaceholder(int choice)
+#define SHADERS_PAGE_ROWS 8    // preset rows per page (a 9th row is the pager)
+
+static menuitem_t ShadersMenu[SHADERS_PAGE_ROWS + 2];
+
+static menu_t ShadersDef =
+{
+    0,                 // numitems, rebuilt on every open/page flip
+    &OptionsDef,
+    ShadersMenu,
+    M_DrawShadersBrowser,
+    60,48,
+    0
+};
+
+static const char **shaders_list = NULL;    // scanned presets (i_video.c)
+static int shaders_count = 0;
+static int shaders_page = 0;
+
+// Fill ShadersMenu[] for shaders_page: one row per preset on the page,
+// a MORE... row when another page follows, and the status -1
+// terminator. Rows are status 1 (enter fires the routine; the left/
+// right arrows that drive sliders stay hands-off).
+static void M_BuildShaderPage(void)
+{
+    int first = shaders_page * SHADERS_PAGE_ROWS;
+    int rows = shaders_count - first;
+    int i;
+
+    if (rows > SHADERS_PAGE_ROWS)
+    {
+        rows = SHADERS_PAGE_ROWS;
+    }
+    if (rows < 0)
+    {
+        rows = 0;
+    }
+    for (i = 0; i < rows; i++)
+    {
+        ShadersMenu[i].status = 1;
+        ShadersMenu[i].name[0] = '\0';
+        ShadersMenu[i].routine = M_ShadersPick;
+        ShadersMenu[i].alphaKey = '\0';
+    }
+    if (rows == 0)
+    {
+        // Empty folder: one informational row, selectable so the cursor
+        // has somewhere to live, but it only shrugs.
+        ShadersMenu[0].status = 1;
+        ShadersMenu[0].routine = M_ShadersNone;
+        rows = 1;
+    }
+    else if (first + rows < shaders_count)
+    {
+        ShadersMenu[rows].status = 1;
+        ShadersMenu[rows].name[0] = '\0';
+        ShadersMenu[rows].routine = M_ShadersPage;
+        ShadersMenu[rows].alphaKey = '\0';
+        rows++;
+    }
+    ShadersMenu[rows].status = -1;
+    ShadersMenu[rows].routine = NULL;
+    ShadersDef.numitems = (short) rows;
+}
+
+//
+// Open the browser from the Options menu's SHADERS row. The scan runs
+// here so presets dropped into a shaders/ folder mid-session appear
+// without a restart, and the opening page/row is the active preset.
+//
+static void M_Shaders(int choice)
+{
+    const char *cur;
+    int i;
+
+    choice = 0;
+    shaders_list = I_ShaderPresets(&shaders_count);
+    shaders_page = 0;
+    itemOn = 0;
+    cur = I_CurrentShaderPreset();
+    for (i = 0; i < shaders_count; i++)
+    {
+        if (strcmp(shaders_list[i], cur) == 0)
+        {
+            shaders_page = i / SHADERS_PAGE_ROWS;
+            itemOn = (short) (i % SHADERS_PAGE_ROWS);
+            break;
+        }
+    }
+    M_BuildShaderPage();
+    if (itemOn >= ShadersDef.numitems)
+    {
+        itemOn = 0;
+    }
+    M_SetupNextMenu(&ShadersDef);
+}
+
+// Enter on a preset row: apply it.
+static void M_ShadersPick(int choice)
+{
+    int idx = shaders_page * SHADERS_PAGE_ROWS + itemOn;
+
+    choice = 0;
+    if (itemOn >= ShadersDef.numitems || idx >= shaders_count)
+    {
+        return;
+    }
+    if (I_SelectShaderPreset(shaders_list[idx]))
+    {
+        // Live swap; the stats overlay already flashed the preset name.
+    }
+    else if (I_VulkanActive())
+    {
+        // A live swap that failed: the overlay flash says why.
+        S_StartSound(NULL, sfx_oof);
+    }
+    else
+    {
+        players[consoleplayer].message =
+            DEH_String("SHADER SAVED - RESTART TO APPLY");
+    }
+}
+
+// Enter on the MORE... row: next page (wraps).
+static void M_ShadersPage(int choice)
 {
     choice = 0;
-    S_StartSound(NULL,sfx_oof);
+    if ((shaders_page + 1) * SHADERS_PAGE_ROWS >= shaders_count)
+    {
+        shaders_page = 0;
+    }
+    else
+    {
+        shaders_page++;
+    }
+    itemOn = 0;
+    M_BuildShaderPage();
+}
+
+// Enter on the empty-folder row.
+static void M_ShadersNone(int choice)
+{
+    choice = 0;
+    S_StartSound(NULL, sfx_oof);
+}
+
+//
+// [CDVK] Browser draw: title in place of the OPTIONS patch (same ink
+// height as M_DrawAdvanced), then this page's rows in the HU font at
+// the M_MSGOFF item height. The active preset carries a " *" marker;
+// the animated skull (drawn generically by M_Drawer) is the cursor.
+// Rows that would overflow the 320px screen are trimmed to "..".
+//
+static void M_DrawShadersBrowser(void)
+{
+    patch_t *title;
+    patch_t *label;
+    const char *cur = I_CurrentShaderPreset();
+    int first = shaders_page * SHADERS_PAGE_ROWS;
+    int rows = shaders_count - first;
+    int maxw = SCREENWIDTH - ShadersDef.x - 12;
+    int i;
+
+    title = W_CacheLumpName(DEH_String("M_OPTTTL"), PU_CACHE);
+    label = W_CacheLumpName(DEH_String("M_MSGOFF"), PU_CACHE);
+
+    i = M_TextScaledWidth("SHADERS", title);
+    M_DrawTextScaled((SCREENWIDTH - i) / 2, 15, "SHADERS", title);
+
+    if (rows < 0)
+    {
+        rows = 0;
+    }
+    if (rows > SHADERS_PAGE_ROWS)
+    {
+        rows = SHADERS_PAGE_ROWS;
+    }
+    if (shaders_count == 0)
+    {
+        M_DrawTextScaled(ShadersDef.x, ShadersDef.y,
+                         "(NO SHADERS FOUND)", label);
+        M_DrawTextScaled(ShadersDef.x, ShadersDef.y + LINEHEIGHT,
+                         "PUT .SLANGP FILES IN SHADERS/", label);
+        return;
+    }
+    for (i = 0; i < rows; i++)
+    {
+        char disp[32];
+        char *dot;
+        size_t len;
+
+        M_snprintf(disp, sizeof(disp), "%s",
+                   M_BaseName(shaders_list[first + i]));
+        dot = strrchr(disp, '.');
+        if (dot != NULL)
+        {
+            *dot = '\0';
+        }
+        len = strlen(disp);
+        while (len > 2)
+        {
+            char trybuf[36];
+            M_snprintf(trybuf, sizeof(trybuf), "%s..", disp);
+            if (M_TextScaledWidth(trybuf, label) <= maxw)
+            {
+                break;
+            }
+            disp[--len] = '\0';
+        }
+        if (len > 2)
+        {
+            M_snprintf(disp + strlen(disp), sizeof(disp) - strlen(disp),
+                       "..");
+        }
+        if (strcmp(shaders_list[first + i], cur) == 0)
+        {
+            M_snprintf(disp + strlen(disp), sizeof(disp) - strlen(disp),
+                       " *");
+        }
+        M_DrawTextScaled(ShadersDef.x, ShadersDef.y + LINEHEIGHT * i,
+                         disp, label);
+    }
+    if (first + rows < shaders_count)
+    {
+        M_DrawTextScaled(ShadersDef.x, ShadersDef.y + LINEHEIGHT * rows,
+                         "MORE...", label);
+    }
 }
 
 
