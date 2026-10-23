@@ -11,6 +11,14 @@ matching).
 
 ## [Unreleased]
 
+## [3.0.2] - 2026-10-23
+
+The second point release: the SHADERS menu row becomes a working shader
+browser in all four games — every `.slangp` preset is listed in-game and
+hot-swappable on the Vulkan path — and Strife's keyboard-only inventory
+controls become bindable on a gamepad, with setup-tool rows and
+Strife-tuned calibration defaults to match.
+
 ### Added
 - The SHADERS row is now a **shader browser** in all four games. It
   pages through every `.slangp` preset found in the active preset's
@@ -53,7 +61,19 @@ matching).
   configure from its executable name, so `chocolate-strife-setup` is
   the (only) way to get a Strife-specific settings window.
 
-## [v3.0.1] - 2026-10-22
+### Fixed
+- The shader browser's first landing turned every CI build job red:
+  `I_VK_SetPreset` wired up the SPIR-V disk-cache callbacks
+  (`VK_SpirvCacheLoad` / `VK_SpirvCacheStore`) about 140 lines before
+  their definitions. GCC before 14 let the implicit declarations
+  through as warnings — which is why local builds passed — but MSVC
+  rejects them outright (C2065) and GCC 14+ errors too, so every
+  platform failed on the same commit. The callbacks are now
+  forward-declared, and the browser's `n = strlen(configdir)` got the
+  explicit `(int)` cast that MSVC's C4267 was asking for. Build-only
+  fix; no functional changes.
+
+## [3.0.1] - 2026-10-22
 
 The first point release: an in-game FOV slider and a new ADVANCED
 options submenu in all four games, weapon sprites that keep their
