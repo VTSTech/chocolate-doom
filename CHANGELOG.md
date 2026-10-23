@@ -5,10 +5,18 @@ this fork adds on top of upstream Chocolate Doom. Upstream changes keep
 living in upstream's own history and are not tracked here.
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-Versions: this repository's `v<N>` tags (`v3` ships as package
-version `3.0.0`).
+Versions: this repository's release tags (`v3` ships as package
+version `3.0.0`; point releases tag as `v3.0.<n>`, package version
+matching).
 
 ## [Unreleased]
+
+## [v3.0.1] - 2026-10-22
+
+The first point release: an in-game FOV slider and a new ADVANCED
+options submenu in all four games, weapon sprites that keep their
+vanilla size at any FOV, floors and ceilings that hold still under
+the camera, and a README that describes what the fork actually is.
 
 ### Added
 - ADVANCED options submenu in all four games, replacing the END GAME
@@ -32,6 +40,10 @@ values are computed exactly from the half-angle tangent).  In
   matches the rest of the options menu.  Saved as `fov` in the
   config file; purely a rendering change, so demos and network
   games are unaffected.
+- `patches/` archive entries 0014–0018, keeping the in-tree patch
+  record aligned with the git history (the autotools build fixes, the
+  FOV slider batches, and the reverted ui-scale experiment, kept for
+  reference).
 
 ### Changed
 - README description rewritten: the fork no longer bills itself as
@@ -65,6 +77,12 @@ values are computed exactly from the half-angle tangent).  In
   when it is available; the menu row remains as a named placeholder for
   a future use, and the keypad **+** / **-** keys are now accepted as
   aliases for the screen-size hotkeys alongside the main-row keys.
+- Upstream project documentation left over from the 1.x tree:
+  `NEWS.md`, `TODO.md`, `RELEASE_NOTES.md` and the old `ChangeLog` are
+  gone, and `CONTRIBUTING.md`, the issue template, `AUTHORS`,
+  `CODE_OF_CONDUCT.md` and the packaging metadata (`rpm.spec.in`,
+  `pkg/config.make.in`) no longer self-identify as plain Chocolate
+  Doom — the repository presents as Chocolate Doom VK throughout.
 
 ### Fixed
 
@@ -327,7 +345,8 @@ Windows, and `libslang-vk` as a shared DLL.
   `9e593bb18ea69cc5095e012465dcd675a822ed0d`) so the manifest resolves
   deterministically.
 
-[Unreleased]: https://github.com/VTSTech/chocolate-doom-vk/compare/v3...HEAD
+[Unreleased]: https://github.com/VTSTech/chocolate-doom-vk/compare/v3.0.1...HEAD
+[v3.0.1]: https://github.com/VTSTech/chocolate-doom-vk/compare/v3...v3.0.1
 [v3]: https://github.com/VTSTech/chocolate-doom-vk/compare/v2...v3
 [v2]: https://github.com/VTSTech/chocolate-doom-vk/compare/v1...v2
 [v1]: https://github.com/VTSTech/chocolate-doom-vk/releases/tag/v1

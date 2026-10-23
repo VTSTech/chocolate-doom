@@ -1,7 +1,7 @@
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 cmake_minimum_required(VERSION 3.7.2)
-project("Chocolate Doom VK" VERSION 3.0.0 LANGUAGES C)
+project("Chocolate Doom VK" VERSION 3.0.1 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 99)
 
