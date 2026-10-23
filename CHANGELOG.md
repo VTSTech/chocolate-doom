@@ -69,22 +69,28 @@ values are computed exactly from the half-angle tangent).  In
 ### Fixed
 
 - Floors and ceilings no longer swim ("the floor textures are
-  moving/rotating") while moving or turning, and they now line up with
-  the walls at any FOV. Three defects in the flat mapping: the span
-  origin came from the 8192-entry fine tangent tables, so distant
+  moving/rotating") or smear into radial streaks, and they now line up
+  with the walls at any FOV. Four defects in the flat mapping: the
+  span origin came from the 8192-entry fine tangent tables, so distant
   floor texels jumped by up to a full texel or more every time the
   view angle crossed a table step; the exact-origin replacement first
   shipped with the pixel offset divided into the fixed-point
   projection unconverted, which started every span row on the
-  center-ray texel and tore the flats across the screen (far worse
-  than the original artifact); and the per-row distance was built
-  from `viewwidth/2` instead of the FOV focal length, so at any
-  FOV other than 90 the floors were sampled at a different depth than
-  the walls show (up to ~73% too far at FOV 120). The span origin and
-  the per-row step are now derived from exact sin/cos/atan of the true
-  column ray (doubles, no table grid), with the pixel offset converted
-  to fixed point in the projection's units; at FOV 90 with 320x200 the
-  wall/sprite/sky rendering is untouched.
+  center-ray texel; that first unit fix still left the ray length
+  computed in fixed-point 16.16 units and then multiplied by 65536 a
+  second time, so the +/-32768 range clamp (meant for world units)
+  saturated every origin to half a texel and the overflowed
+  conversion wrapped int32 - every span origin became garbage and the
+  flats rendered as static radial smears at any FOV, default included
+  (floors and ceilings only, walls unaffected); and the per-row
+  distance was built from `viewwidth/2` instead of the FOV focal
+  length, so at any FOV other than 90 the floors were sampled at a
+  different depth than the walls show (up to ~73% too far at
+  FOV 120). The span origin and the per-row step are now derived from
+  exact sin/cos/atan of the true column ray (doubles, no table grid),
+  in real map units throughout, with the world point clamped to the
+  fixed_t range before the single fixed-point conversion; at FOV 90
+  with 320x200 the wall/sprite/sky rendering is untouched.
 - The doom/strife menu labels ("ADVANCED...", "SHADERS", "FOV") were
   drawn by stretching every HU-font glyph to the full 15px box of the
   M_SVOL title patch: visibly taller than the 12px item patches around

@@ -154,24 +154,29 @@ R_MapPlane
 	// (x1-centerx) is a raw pixel delta: shift to fixed point
 	// before dividing by the fixed_t projection, or u is 65536x
 	// too small and every row starts on the center ray.
+	// distance is fixed_t 16.16, so convert it to real map units
+	// first and clamp the WORLD point to the fixed_t range before
+	// the single fixed-point conversion.  (Clamping fixed-unit
+	// values at +/-32768 saturated every origin to half a texel,
+	// and the extra *65536 then wrapped int32 -> smeared planes.)
     {
 	double	u = (double)((x1 - centerx) << FRACBITS) / (double)projection;
 	double	ray = ANGTODBL(viewangle) - atan (u);
-	double	len = (double)distance * sqrt (1.0 + u * u);
-	double	xfrac = cos (ray) * len;
-	double	yfrac = sin (ray) * len;
+	double	len = (double)distance / 65536.0 * sqrt (1.0 + u * u);
+	double	wx = (double)viewx / 65536.0 + cos (ray) * len;
+	double	wy = (double)viewy / 65536.0 + sin (ray) * len;
 
-	if (xfrac > 32767.0)
-	    xfrac = 32767.0;
-	else if (xfrac < -32768.0)
-	    xfrac = -32768.0;
-	if (yfrac > 32767.0)
-	    yfrac = 32767.0;
-	else if (yfrac < -32768.0)
-	    yfrac = -32768.0;
+	if (wx > 32767.0)
+	    wx = 32767.0;
+	else if (wx < -32768.0)
+	    wx = -32768.0;
+	if (wy > 32767.0)
+	    wy = 32767.0;
+	else if (wy < -32768.0)
+	    wy = -32768.0;
 
-	ds_xfrac = viewx + (fixed_t)(xfrac * 65536.0);
-	ds_yfrac = -viewy - (fixed_t)(yfrac * 65536.0);
+	ds_xfrac = (fixed_t)(wx * 65536.0);
+	ds_yfrac = -(fixed_t)(wy * 65536.0);
     }
 
     if (fixedcolormap)
