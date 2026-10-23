@@ -90,7 +90,7 @@ if(ENABLE_VK_SHADERS)
     # drift. To bump, swap in the new full hash — always deliberate.
     FetchContent_Declare(libslang-vk
     GIT_REPOSITORY https://github.com/VTSTech/libslang-vk.git
-    GIT_TAG d176d1bfa15e01b84fa5e40d5a3700e1de824b86 # M4.07
+    GIT_TAG ba2b7983be5ed295120ce67fbc5b3acb65eca8e7 # M4.08
     )
     FetchContent_MakeAvailable(libslang-vk)
     # User-facing artifact names: libslang-vk.dll on Windows (the repo's
