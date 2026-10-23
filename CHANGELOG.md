@@ -86,11 +86,21 @@ values are computed exactly from the half-angle tangent).  In
   distance was built from `viewwidth/2` instead of the FOV focal
   length, so at any FOV other than 90 the floors were sampled at a
   different depth than the walls show (up to ~73% too far at
-  FOV 120). The span origin and the per-row step are now derived from
+  FOV 120). A fifth defect made the flats look almost correct from a
+  single heading only: the angle conversion macro divided the binary
+  angle by 2^30 instead of by the degrees-per-binary-unit (2^32/360),
+  shrinking every view angle 90x, so the flats kept the perspective of
+  a viewer permanently facing east - correct facing one way, with
+  walls rotating over a frozen floor/ceiling pattern at every other
+  heading. The span origin and the per-row step are now derived from
   exact sin/cos/atan of the true column ray (doubles, no table grid),
-  in real map units throughout, with the world point clamped to the
-  fixed_t range before the single fixed-point conversion; at FOV 90
-  with 320x200 the wall/sprite/sky rendering is untouched.
+  in real map units throughout; the view offset is wrapped int32
+  exactly like vanilla fixed-point math (the span blitter masks texels
+  to 6 bits, so wrap-around is harmless, while the previous clamp
+  pinned far and map-edge spans to a wrong texel phase); and the step
+  coefficients are rounded half away from zero instead of truncated,
+  removing up to a full 16.16 lsb of per-row step bias. At FOV 90 with
+  320x200 the wall/sprite/sky rendering is untouched.
 - The doom/strife menu labels ("ADVANCED...", "SHADERS", "FOV") were
   drawn by stretching every HU-font glyph to the full 15px box of the
   M_SVOL title patch: visibly taller than the 12px item patches around

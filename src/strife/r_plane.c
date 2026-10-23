@@ -34,7 +34,7 @@
 #include "r_sky.h"
 // [CDVK] angle_t (binary angular measure) -> radians, exact over the
 // full 32-bit range.  Used by the exact floor/ceiling span mapping.
-#define ANGTODBL(a)	((double)(a) * (0.017453292519943295 / 1073741824.0))
+#define ANGTODBL(a)	((double)(a) * (2.0 * 3.14159265358979323846 / 4294967296.0))
 
 
 
@@ -150,34 +150,28 @@ R_MapPlane
 	
     // [CDVK] exact span origin: trace the true ray of column x1 onto
     // the plane instead of the 8192-entry fine tables.  The per-row
-    // step below is exact for planes, so the whole row maps exactly
-    // and floors/ceilings stop swimming when moving or turning.
+    // step (FixedMul(distance, basexscale/baseyscale)) is exact for
+    // planes, so the whole row maps exactly and floors/ceilings
+    // stop swimming when moving or turning.
 	// (x1-centerx) is a raw pixel delta: shift to fixed point
 	// before dividing by the fixed_t projection, or u is 65536x
 	// too small and every row starts on the center ray.
-	// distance is fixed_t 16.16, so convert it to real map units
-	// first and clamp the WORLD point to the fixed_t range before
-	// the single fixed-point conversion.  (Clamping fixed-unit
-	// values at +/-32768 saturated every origin to half a texel,
-	// and the extra *65536 then wrapped int32 -> smeared planes.)
+	// len is the true horizontal ray length for the row (distance
+	// is the range along the row's center ray; every point of the
+	// row line sits distance*sqrt(1+u^2) from the view).  The view
+	// offset is wrapped int32 exactly like vanilla fixed-point
+	// math: the span blitter masks texels to 6 bits, so wrap-around
+	// is harmless, while clamping would pin far/map-edge spans to
+	// a wrong texel phase, and converting an out-of-range double
+	// to int32 is undefined.  |offset| < 2^18*2^16 < 2^34, so the
+	// int64 conversion is safe.
     {
 	double	u = (double)((x1 - centerx) << FRACBITS) / (double)projection;
 	double	ray = ANGTODBL(viewangle) - atan (u);
 	double	len = (double)distance / 65536.0 * sqrt (1.0 + u * u);
-	double	wx = (double)viewx / 65536.0 + cos (ray) * len;
-	double	wy = (double)viewy / 65536.0 + sin (ray) * len;
 
-	if (wx > 32767.0)
-	    wx = 32767.0;
-	else if (wx < -32768.0)
-	    wx = -32768.0;
-	if (wy > 32767.0)
-	    wy = 32767.0;
-	else if (wy < -32768.0)
-	    wy = -32768.0;
-
-	ds_xfrac = (fixed_t)(wx * 65536.0);
-	ds_yfrac = -(fixed_t)(wy * 65536.0);
+	ds_xfrac = viewx + (fixed_t)(int64_t)(cos (ray) * len * 65536.0);
+	ds_yfrac = -viewy - (fixed_t)(int64_t)(sin (ray) * len * 65536.0);
     }
 
     if (fixedcolormap)
@@ -227,10 +221,19 @@ void R_ClearPlanes (void)
     // length instead of the 8192-entry fine table over centerxfrac:
     // the per-row floor step no longer rides the table grid, so
     // distant floors/ceilings stop wobbling while turning.
-    basexscale = (fixed_t) (cos (ANGTODBL(viewangle - ANG90))
-			    * 4294967296.0 / projection);
-    baseyscale = -(fixed_t) (sin (ANGTODBL(viewangle - ANG90))
-			     * 4294967296.0 / projection);
+    {
+	double	s, c;
+
+	s = sin (ANGTODBL(viewangle - ANG90));
+	c = cos (ANGTODBL(viewangle - ANG90));
+	// [CDVK] round half away from zero: plain truncation biased the
+	// step by up to a full 16.16 lsb, letting far floor/ceiling rows
+	// drift up to half a texel per pixel across wide spans.
+	basexscale = (fixed_t) (c * 4294967296.0 / projection
+				+ (c < 0 ? -0.5 : 0.5));
+	baseyscale = -(fixed_t) (s * 4294967296.0 / projection
+				 + (s < 0 ? -0.5 : 0.5));
+    }
 }
 
 
