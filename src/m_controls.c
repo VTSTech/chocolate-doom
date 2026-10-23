@@ -218,6 +218,19 @@ int joybflyup = -1;
 int joybflydown = -1;
 int joybflycenter = -1;
 
+// [CDVK] Strife-only joystick controls, mirroring key_usehealth and the
+// other Strife-only keys. All unbound by default; the setup tool's
+// Gamepad/Joystick window offers them under "More controls...".
+
+int joybusehealth = -1;
+int joybinvquery = -1;
+int joybmission = -1;
+int joybinvpop = -1;
+int joybinvkey = -1;
+int joybinvdrop = -1;
+int joybinvhome = -1;
+int joybinvend = -1;
+
 // Control whether if a mouse button is double clicked, it acts like 
 // "use" has been pressed
 
@@ -361,6 +374,17 @@ void M_BindStrifeControls(void)
     M_BindIntVariable("joyb_invright",      &joybinvright);
     // This is technically "invuse" in Strife, but let's reuse the value.
     M_BindIntVariable("joyb_useartifact",   &joybuseartifact);
+
+    // [CDVK] Strife-only joystick controls.
+
+    M_BindIntVariable("joyb_usehealth",     & joybusehealth);
+    M_BindIntVariable("joyb_invquery",      & joybinvquery);
+    M_BindIntVariable("joyb_mission",       & joybmission);
+    M_BindIntVariable("joyb_invpop",        & joybinvpop);
+    M_BindIntVariable("joyb_invkey",        & joybinvkey);
+    M_BindIntVariable("joyb_invdrop",       & joybinvdrop);
+    M_BindIntVariable("joyb_invhome",       & joybinvhome);
+    M_BindIntVariable("joyb_invend",        & joybinvend);
 }
 
 void M_BindWeaponControls(void)

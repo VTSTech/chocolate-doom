@@ -177,6 +177,17 @@ extern int joybflyup;
 extern int joybflydown;
 extern int joybflycenter;
 
+// [CDVK] Strife-only joystick controls (all unbound by default).
+
+extern int joybusehealth;
+extern int joybinvquery;
+extern int joybmission;
+extern int joybinvpop;
+extern int joybinvkey;
+extern int joybinvdrop;
+extern int joybinvhome;
+extern int joybinvend;
+
 extern int dclick_use;
 
 void M_BindBaseControls(void);

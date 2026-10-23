@@ -16,9 +16,12 @@ matching).
   pages through every `.slangp` preset found in the active preset's
   own folder, `shaders/` beside the executable and `shaders/` in the
   config dir — presets dropped into either folder appear the next
-  time the browser opens, no restart needed. It opens on the active
-  preset (marked `*`), pages with a `MORE...` row, and Enter applies
-  the highlighted entry. With the Vulkan path live the swap is hot:
+  time the browser opens, no restart needed. The list is a sliding
+  window that scrolls both ways over the whole preset set — arrow keys
+  move one row, left/right skip a windowful — and it opens on the
+  active preset (marked `*`), drawn at normal small-font size (the
+  rows were briefly double-height). Enter applies the highlighted
+  entry. With the Vulkan path live the swap is hot:
   the new preset is parsed and a complete new chain built against the
   live swapchain *before* the old chain/preset pair is destroyed
   (prepare-then-commit), so a broken or missing preset cannot leave
@@ -33,6 +36,22 @@ matching).
   and a stale `usevulkan = 0` is re-enabled exactly like a `-shader`
   command-line pass) and a message notes that a restart applies it;
   there is still no "shaders off" row.
+- **Strife's Strife-only controls now exist on gamepads.** Upstream
+  reads them from the keyboard only, so the setup tool had no rows it
+  could offer: use medkit, drop item, inventory popup, objectives
+  popup, keys popup, item query and jump-to-first/last inventory item
+  are new `joyb_*` config keys wired into the engine (ticcmd flags for
+  medkit/drop exactly like the keyboard, edge-detected presses for the
+  popups so holding a button doesn't page through them) and offered in
+  the setup tool under Gamepad/Joystick → "More controls...". The
+  modern-gamepad defaults applied by calibration are Strife-tuned: the
+  dpad walks the inventory instead of the fly controls Strife never
+  had, L3 uses a medkit and Select drops the highlighted item. Doom,
+  Heretic and Hexen keep the stock layout.
+- CMake builds now produce the four per-game `chocolate-*-setup`
+  binaries, same as autotools — the setup tool picks which game to
+  configure from its executable name, so `chocolate-strife-setup` is
+  the (only) way to get a Strife-specific settings window.
 
 ## [v3.0.1] - 2026-10-22
 

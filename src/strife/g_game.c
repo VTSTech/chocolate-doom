@@ -371,7 +371,7 @@ void G_BuildTiccmd (ticcmd_t* cmd, int maketic)
     }
 
     // villsa [STRIFE] inventory drop key
-    if(gamekeydown[key_invdrop])
+    if(gamekeydown[key_invdrop] || joybuttons[joybinvdrop])
     {
         player_t* player = &players[consoleplayer];
         if(player->numinventory > 0)
@@ -382,7 +382,7 @@ void G_BuildTiccmd (ticcmd_t* cmd, int maketic)
     }
 
     // villsa [STRIFE] use medkit
-    if(gamekeydown[key_usehealth])
+    if(gamekeydown[key_usehealth] || joybuttons[joybusehealth])
         cmd->buttons2 |= BT2_HEALTH;
 
 
@@ -807,6 +807,18 @@ static void SetJoyButtons(unsigned int buttons_mask)
             {
                 if (player->inventorycursor < player->numinventory - 1)
                     player->inventorycursor++;
+            }
+            // [CDVK] Jump to the first/last inventory item
+            else if (i == joybinvhome)
+            {
+                player->inventorycursor = 0;
+            }
+            else if (i == joybinvend)
+            {
+                if (player->numinventory)
+                    player->inventorycursor = player->numinventory - 1;
+                else
+                    player->inventorycursor = 0;
             }
         }
 

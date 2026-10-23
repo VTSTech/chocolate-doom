@@ -318,6 +318,23 @@ if(MSVC)
                           LINK_FLAGS "/MANIFEST:NO")
 endif()
 
+# Autotools builds copy chocolate-setup to per-game chocolate-*-setup
+# executables (SETUP_BINARIES in src/Makefile.am); the setup tool picks
+# the game to configure from argv[0]. Keep CMake builds in parity so
+# every build produces the four per-game setup binaries as well.
+
+foreach(GAME doom heretic hexen strife)
+    if(WIN32)
+        set(SETUP_COPY_NAME "${PROGRAM_PREFIX}${GAME}-setup.exe")
+    else()
+        set(SETUP_COPY_NAME "${PROGRAM_PREFIX}${GAME}-setup")
+    endif()
+    add_custom_command(TARGET "${PROGRAM_PREFIX}setup" POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy
+                "$<TARGET_FILE:${PROGRAM_PREFIX}setup>"
+                "$<TARGET_FILE_DIR:${PROGRAM_PREFIX}setup>/${SETUP_COPY_NAME}")
+endforeach()
+
 if (DEFINED EMSCRIPTEN)
     set_target_properties("${PROGRAM_PREFIX}setup" PROPERTIES LINK_FLAGS "${SDL_FLAGS} -s ALLOW_MEMORY_GROWTH=1 -s ASYNCIFY=1 -s EXPORTED_FUNCTIONS=_main,ccall,cwrap,FS,ENV,PATH,ERRNO_CODES")
     set_target_properties("${PROGRAM_PREFIX}strife" PROPERTIES LINK_FLAGS "${SDL_FLAGS} -s ALLOW_MEMORY_GROWTH=1 -s ASYNCIFY=1 -s EXPORTED_FUNCTIONS=_main,ccall,cwrap,FS,ENV,PATH,ERRNO_CODES")

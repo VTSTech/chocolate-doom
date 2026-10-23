@@ -167,6 +167,14 @@ static const joystick_config_t empty_defaults[] =
     {"joyb_useartifact",           -1},
     {"joyb_invleft",               -1},
     {"joyb_invright",              -1},
+    {"joyb_usehealth",             -1},
+    {"joyb_invquery",              -1},
+    {"joyb_mission",               -1},
+    {"joyb_invpop",                -1},
+    {"joyb_invkey",                -1},
+    {"joyb_invdrop",               -1},
+    {"joyb_invhome",               -1},
+    {"joyb_invend",                -1},
     {"joyb_flyup",                 -1},
     {"joyb_flydown",               -1},
     {"joyb_flycenter",             -1},
@@ -652,6 +660,33 @@ static const joystick_config_t modern_gamepad[] =
     {NULL, 0},
 };
 
+// [CDVK] Modern gamepad defaults tuned for Strife: there is nothing to
+// fly, so the dpad jumps to the first/last inventory item instead, and
+// the Strife-only popups get buttons of their own.
+static const joystick_config_t strife_gamepad[] =
+{
+    {"joystick_x_axis", SDL_CONTROLLER_AXIS_RIGHTX},
+    {"joystick_y_axis", SDL_CONTROLLER_AXIS_LEFTY},
+    {"joystick_strafe_axis", SDL_CONTROLLER_AXIS_LEFTX},
+    {"joystick_look_axis", SDL_CONTROLLER_AXIS_RIGHTY},
+    {"joyb_fire", GAMEPAD_BUTTON_TRIGGERRIGHT},
+    {"joyb_speed", GAMEPAD_BUTTON_TRIGGERLEFT},
+    {"joyb_use", SDL_CONTROLLER_BUTTON_B},
+    {"joyb_jump", SDL_CONTROLLER_BUTTON_A},
+    {"joyb_prevweapon", SDL_CONTROLLER_BUTTON_LEFTSHOULDER},
+    {"joyb_nextweapon", SDL_CONTROLLER_BUTTON_RIGHTSHOULDER},
+    {"joyb_menu_activate", SDL_CONTROLLER_BUTTON_START},
+    {"joyb_toggle_automap", SDL_CONTROLLER_BUTTON_Y},
+    {"joyb_useartifact", SDL_CONTROLLER_BUTTON_X},
+    {"joyb_invleft", SDL_CONTROLLER_BUTTON_DPAD_LEFT},
+    {"joyb_invright", SDL_CONTROLLER_BUTTON_DPAD_RIGHT},
+    {"joyb_invhome", SDL_CONTROLLER_BUTTON_DPAD_UP},
+    {"joyb_invend", SDL_CONTROLLER_BUTTON_DPAD_DOWN},
+    {"joyb_usehealth", SDL_CONTROLLER_BUTTON_LEFTSTICK},
+    {"joyb_invdrop", SDL_CONTROLLER_BUTTON_BACK},
+    {NULL, 0},
+};
+
 // Based on the SNES Doom mapping
 static const joystick_config_t classic_gamepad[] =
 {
@@ -987,7 +1022,14 @@ static void GetGamepadDefaultConfig(void)
 
     if (have_four_shoulder && have_dual_sticks)
     {
-        LoadConfigurationSet(modern_gamepad);
+        if (gamemission == strife)
+        {
+            LoadConfigurationSet(strife_gamepad);
+        }
+        else
+        {
+            LoadConfigurationSet(modern_gamepad);
+        }
     }
     else if (have_four_shoulder)
     {
@@ -1202,6 +1244,20 @@ static void MoreControls(TXT_UNCAST_ARG(widget), TXT_UNCAST_ARG(unused))
         AddJoystickControl(window, "Fly up", &joybflyup);
         AddJoystickControl(window, "Fly down", &joybflydown);
         AddJoystickControl(window, "Fly center", &joybflycenter);
+    }
+
+    // [CDVK] The Strife-only controls are keyboard-only upstream; offer
+    // them on gamepads too.
+    if (gamemission == strife)
+    {
+        AddJoystickControl(window, "Use medkit", &joybusehealth);
+        AddJoystickControl(window, "Drop item", &joybinvdrop);
+        AddJoystickControl(window, "Inventory popup", &joybinvpop);
+        AddJoystickControl(window, "Objectives popup", &joybmission);
+        AddJoystickControl(window, "Keys popup", &joybinvkey);
+        AddJoystickControl(window, "Item query", &joybinvquery);
+        AddJoystickControl(window, "Inventory first", &joybinvhome);
+        AddJoystickControl(window, "Inventory last", &joybinvend);
     }
 
     TXT_SetWindowAction(window, TXT_HORIZ_LEFT, NULL);

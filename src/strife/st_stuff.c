@@ -288,6 +288,125 @@ void ST_Stop(void);
 // [STRIFE]
 static char st_msgbuf[ST_MSGWIDTH];
 
+// [CDVK] Strife-only controls on joystick buttons: the inventory popups
+// and the item query. Joystick events arrive every tic carrying the mask
+// of every held button, so each of these is edge-detected: the action
+// fires on the 0 -> 1 transition only, never while the button is held.
+// The bound buttons are the joyb_* twins of the Strife-only keys; both
+// can be set in the setup tool under Gamepad/Joystick -> More controls...
+
+#define ST_MAX_JOYBUTTON 20     // keep in sync with g_game.c MAX_JOY_BUTTONS
+
+static boolean ST_JoyButtonEdge(event_t* ev, int joyb, int index)
+{
+    static boolean prev[4];
+    boolean pressed;
+
+    if (joyb < 0 || joyb >= ST_MAX_JOYBUTTON)
+        return false;
+
+    pressed = (ev->data1 & (1u << joyb)) != 0;
+
+    if (pressed && !prev[index])
+    {
+        prev[index] = true;
+        return true;
+    }
+
+    if (!pressed)
+        prev[index] = false;
+
+    return false;
+}
+
+static void ST_ShowPopup(int displaytics)
+{
+    st_popupdisplaytics = displaytics;
+    st_displaypopup = true;
+
+    if (viewheight == SCREENHEIGHT)
+    {
+        M_SizeDisplay(false);
+        st_dosizedisplay = true;
+    }
+}
+
+static boolean ST_JoyResponder(event_t* ev)
+{
+    // haleyjd: No input allowed when the player is dead
+    if(plyr->mo->health <= 0)
+        return false;
+
+    // Inventory query: message the highlighted item's amount and name
+    if(ST_JoyButtonEdge(ev, joybinvquery, 0))
+    {
+        inventory_t *inv = &(plyr->inventory[plyr->inventorycursor]);
+
+        if(inv->amount)
+        {
+            DEH_snprintf(st_msgbuf, sizeof(st_msgbuf), "%d %s",
+                         inv->amount,
+                         DEH_String(mobjinfo[inv->type].name));
+            plyr->message = st_msgbuf;
+        }
+        return true;
+    }
+
+    // Keys popup: each press steps through the three key pages
+    if(ST_JoyButtonEdge(ev, joybinvkey, 1))
+    {
+        st_showobjective = false;
+        st_showinvpop = false;
+
+        if(++st_keypage > 2)
+        {
+            st_keypage = -1;
+            st_popupdisplaytics = 0;
+            st_showkeys = false;
+            st_displaypopup = false;
+
+            if(st_dosizedisplay)
+            {
+                M_SizeDisplay(true);
+                st_dosizedisplay = false;
+            }
+        }
+        else
+        {
+            st_showkeys = true;
+            ST_ShowPopup(netgame ? 20 : 50);
+        }
+        return true;
+    }
+
+    // Inventory popup: pops up briefly, like the keys popup
+    if(ST_JoyButtonEdge(ev, joybinvpop, 2))
+    {
+        st_showkeys = false;
+        st_showobjective = false;
+        st_showinvpop = true;
+        st_keypage = -1;
+        ST_ShowPopup(netgame ? 20 : 50);
+        return true;
+    }
+
+    // Mission/objectives popup: single player only, like the keyboard
+    if(ST_JoyButtonEdge(ev, joybmission, 3))
+    {
+        if(!netgame)
+        {
+            st_showkeys = false;
+            st_showinvpop = false;
+            st_showobjective = true;
+            st_keypage = -1;
+            ST_ShowPopup(50);
+        }
+        return true;
+    }
+
+    return false;
+}
+
 // Respond to keyboard input events,
 //  intercept cheats.
 boolean ST_Responder(event_t* ev)
@@ -350,6 +469,12 @@ boolean ST_Responder(event_t* ev)
         }
 
         return true;
+    }
+
+    // [CDVK] Strife-only controls riding on joystick buttons
+    if(ev->type == ev_joystick)
+    {
+        return ST_JoyResponder(ev);
     }
 
     // if a user keypress...
