@@ -29,6 +29,26 @@ matching).
   case-insensitive glob machinery.
 
 ### Fixed
+- **chocolate-server survives its own crashes with a report.** A
+  Windows-native fault (access violation, heap-corruption abort, ...)
+  killed the console-subsystem server instantly and silently — a
+  window flash with zero diagnostics, indistinguishable from every
+  other instant death. The server now installs a crash trap
+  (`SetUnhandledExceptionFilter` + a `SIGABRT` handler, server only)
+  that prints the exception code, a plain-English translation, and
+  the faulting address to stderr and mirrors it in a message box that
+  stays up until acknowledged; an address landing inside a DLL (e.g.
+  `SDL2_net.dll`) rather than the exe points straight at the culprit.
+  (`0xC0000409` fastfail stays uncatchable by OS design.) Also: the
+  server target now defines `SDL_MAIN_HANDLED` so the console binary
+  enters through its own native `main` — MSVC console builds no
+  longer need the SDL2main/WinMain detour the GUI game binaries use
+  (`i_main.c` calls `SDL_SetMainReady()` for such targets) — and
+  `NET_SDL_InitClient`/`NET_SDL_InitServer` check `SDLNet_Init`'s
+  return value and the receive-packet allocation instead of ignoring
+  them, so a refused WSAStartup or an allocation failure names its
+  stage in an `I_Error` instead of dying downstream with no hint
+  networking never came up.
 - **chocolate-server is no longer a silent black box on Windows.**
   Upstream's 2018 blanket "apply WIN32 to executables" built the
   dedicated server as a GUI-subsystem binary — no console, so its

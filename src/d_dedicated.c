@@ -21,11 +21,79 @@
 #include "config.h"
 
 #include "m_argv.h"
+#include "m_misc.h"
 #include "net_defs.h"
 
 #include "net_dedicated.h"
 #include "net_server.h"
 #include "z_zone.h"
+
+#if defined(_WIN32)
+// A Windows-native crash (access violation, heap corruption abort, ...) kills
+// the process with no output whatsoever — for a double-clicked console app
+// that is a window flash, indistinguishable from any other instant death.
+// This trap turns that flash into a report: the exception code, what it
+// means, and the faulting address (which tells a debugger-less user whether
+// the fault is in chocolate-server.exe itself or in a DLL like SDL2_net).
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <signal.h>
+
+// Translate the handful of exception codes that actually show up in the
+// field into plain English. Everything else prints as a raw hex code.
+static const char *DED_ExceptionText(DWORD code)
+{
+    switch (code)
+    {
+        case EXCEPTION_ACCESS_VIOLATION:      return "access violation";
+        case EXCEPTION_ILLEGAL_INSTRUCTION:   return "illegal instruction";
+        case EXCEPTION_STACK_OVERFLOW:        return "stack overflow";
+        case 0xC0000374:                      return "heap corruption";
+        case 0xC0000409:                      return "stack buffer overrun / fastfail";
+        case 0xC0000135:                      return "DLL not found (loader)";
+        default:                              return "unknown exception";
+    }
+}
+
+static LONG WINAPI DED_CrashFilter(EXCEPTION_POINTERS *info)
+{
+    char msgbuf[512];
+    DWORD code = info->ExceptionRecord->ExceptionCode;
+    void *addr = info->ExceptionRecord->ExceptionAddress;
+
+    fprintf(stderr, "chocolate-server: fatal exception 0x%08lX (%s) at %p\n",
+                    (unsigned long) code, DED_ExceptionText(code), addr);
+    fflush(stderr);
+
+    M_snprintf(msgbuf, sizeof(msgbuf),
+               "Fatal exception 0x%08lX (%s)\n"
+               "at address %p\n\n"
+               "If the address above is inside a DLL (e.g. SDL2_net.dll) "
+               "rather than chocolate-server.exe, that module is the "
+               "culprit — check that the DLLs sitting next to "
+               "chocolate-server.exe match the ones the game uses.",
+               (unsigned long) code, DED_ExceptionText(code), addr);
+
+    // The console window is about to vanish (or already flashed shut),
+    // so also put the report in a message box that stays put until
+    // acknowledged.
+    MessageBoxA(NULL, msgbuf, "chocolate-server crashed",
+                MB_OK | MB_ICONERROR);
+
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
+static void DED_AbortHandler(int sig)
+{
+    fprintf(stderr, "chocolate-server: abort() (signal %d) — usually heap "
+                    "corruption or a failed CRT check\n", sig);
+    fflush(stderr);
+    MessageBoxA(NULL, "abort() called — usually heap corruption or a "
+                      "failed CRT check. See console output.",
+                      "chocolate-server crashed", MB_OK | MB_ICONERROR);
+    _exit(3);
+}
+#endif
 
 // The default listen port lives in net_sdl.c (NET_SDL_InitServer parses
 // "-port" the same way); duplicated here so the startup banner can show
@@ -44,6 +112,16 @@ void NET_CL_Run(void)
 void D_DoomMain(void)
 {
     int p, port = DED_DEFAULT_PORT;
+
+#if defined(_WIN32)
+    // Install the crash trap before anything that could trip over it.
+    // SIGABRT covers the CRT's own abort() path (heap corruption checks);
+    // the SEH filter covers native faults. Note MSVC's release-mode
+    // abort() uses __fastfail (0xC0000409), which is deliberately
+    // uncatchable — that one stays a plain instant death by design.
+    SetUnhandledExceptionFilter(DED_CrashFilter);
+    signal(SIGABRT, DED_AbortHandler);
+#endif
 
     // The console is the dedicated server's whole UI, so make sure it
     // actually says something. Line-buffered stdout keeps the banner

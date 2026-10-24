@@ -38,6 +38,14 @@ set(DEDSERV_FILES
 add_executable("${PROGRAM_PREFIX}server" ${COMMON_SOURCE_FILES} ${DEDSERV_FILES})
 target_include_directories("${PROGRAM_PREFIX}server"
                            PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/../")
+# Console app with a native entry point. Upstream's blanket WIN32 exists
+# because MSVC's GUI-subsystem exes must enter via SDL2main's WinMain —
+# but a console-subsystem server wants the opposite: SDL_MAIN_HANDLED
+# keeps "main" as a real "main", so mainCRTStartup resolves natively
+# under MSVC and MinGW's console entry no longer detours through WinMain
+# either. SDL2main stays linked (harmless, unused WinMain) so the target
+# keeps sharing SDL_LINK_LIBS with everything else.
+target_compile_definitions("${PROGRAM_PREFIX}server" PRIVATE SDL_MAIN_HANDLED)
 
 if (DEFINED EMSCRIPTEN)
     set(SDL_FLAGS "-s USE_SDL=2")

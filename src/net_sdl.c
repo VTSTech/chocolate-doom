@@ -176,7 +176,15 @@ static boolean NET_SDL_InitClient(void)
     if (p > 0)
         port = atoi(myargv[p+1]);
 
-    SDLNet_Init();
+    // Check the return value: a failed SDLNet_Init (e.g. WSAStartup
+    // refused on a locked-down Windows box) used to be silently
+    // ignored, leaving the process to die somewhere further downstream
+    // with no hint that networking never came up.
+    if (SDLNet_Init() < 0)
+    {
+        I_Error("NET_SDL_InitClient: SDLNet_Init failed: %s",
+                SDLNet_GetError());
+    }
 
     udpsocket = SDLNet_UDP_Open(0);
 
@@ -186,6 +194,12 @@ static boolean NET_SDL_InitClient(void)
     }
     
     recvpacket = SDLNet_AllocPacket(1500);
+
+    if (recvpacket == NULL)
+    {
+        I_Error("NET_SDL_InitClient: Failed to allocate receive packet "
+                "(out of memory?)");
+    }
 
 #ifdef DROP_PACKETS
     srand(time(NULL));
@@ -207,7 +221,14 @@ static boolean NET_SDL_InitServer(void)
     if (p > 0)
         port = atoi(myargv[p+1]);
 
-    SDLNet_Init();
+    // As in NET_SDL_InitClient: report SDLNet_Init failure here instead
+    // of letting the dedicated server limp on until something stranger
+    // breaks. The server's console is its only UI, so name the stage.
+    if (SDLNet_Init() < 0)
+    {
+        I_Error("NET_SDL_InitServer: SDLNet_Init failed: %s",
+                SDLNet_GetError());
+    }
 
     udpsocket = SDLNet_UDP_Open(port);
 
@@ -217,6 +238,12 @@ static boolean NET_SDL_InitServer(void)
     }
 
     recvpacket = SDLNet_AllocPacket(1500);
+
+    if (recvpacket == NULL)
+    {
+        I_Error("NET_SDL_InitServer: Failed to allocate receive packet "
+                "(out of memory?)");
+    }
 #ifdef DROP_PACKETS
     srand(time(NULL));
 #endif

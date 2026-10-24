@@ -70,6 +70,15 @@ int main(int argc, char **argv)
 
     SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
 
+#ifdef SDL_MAIN_HANDLED
+    // Targets compiled with SDL_MAIN_HANDLED (the dedicated server: a
+    // console app whose "main" stays a real "main" instead of being
+    // renamed to SDL_main) own their entry point — tell SDL the main
+    // machinery was handled manually. A no-op for the GUI game binaries,
+    // which enter through SDL2main's WinMain instead.
+    SDL_SetMainReady();
+#endif
+
     // start doom
 
     D_DoomMain ();
