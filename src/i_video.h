@@ -115,12 +115,34 @@ void I_GetWindowPosition(int *x, int *y, int w, int h);
 
 // [CDVK] SHADERS browser support (menus in all four games):
 //
-// I_ShaderPresets scans the browser's preset folders and returns a
-// shared array of full paths with *count set to its length (0 when
-// nothing was found). Re-scanned on every call, so presets dropped
-// into a folder mid-session appear on the next browser open. Scan
-// order: the active preset's own folder, <exedir>/shaders,
-// <configdir>/shaders; duplicates by exact path are dropped.
+// The browser walks one folder at a time. I_ShaderBrowse returns a
+// shared array of row entries for the current folder with *count set
+// to its length (0 when the folder could not be read or is empty) and
+// is re-scanned on every call, so presets dropped into the folder
+// mid-session appear on the next browser open. Row layout: a literal
+// ".." first whenever the folder has a parent to climb to, then the
+// folder's own subdirectories (sorted, stored with a trailing
+// DIR_SEPARATOR so I_ShaderEntryIsDir can recognize them), then the
+// folder's *.slangp presets (sorted, full paths).
+//
+// I_ShaderBrowseReset clears the current folder so the next
+// I_ShaderBrowse re-selects the default: the active preset's own
+// folder (its siblings are the most likely next pick), else
+// <exedir>/shaders, else <configdir>/shaders, else <exedir>, else
+// <configdir>. The browser open path calls this; navigation does not.
+//
+// I_ShaderBrowseGoto moves the browser: entry is either the literal
+// ".." row (climb to the parent) or a folder row from a previous
+// I_ShaderBrowse (descend into it). Returns false for a ".." with no
+// parent or a non-folder entry; the menus follow a true return with
+// I_ShaderBrowse to re-populate the list.
+//
+// I_ShaderEntryIsDir recognizes folder rows (trailing separator).
+//
+// I_ShaderRowName renders a row's display label into buf: ".." as-is,
+// folders as NAME/ (trailing slash marks them), presets as NAME with
+// the extension stripped. The menus apply their own width trimming
+// and " *" active marker afterwards.
 //
 // I_CurrentShaderPreset returns the active preset path ("" when none)
 // so the browser can mark the current row.
@@ -132,7 +154,11 @@ void I_GetWindowPosition(int *x, int *y, int w, int h);
 // I_VulkanActive mirrors I_VK_Active() (i_video_vk.h) for menu code:
 // hexen's h2def.h declares `byte *screen`, so the game menus must not
 // include i_video_vk.h (which declares the SDL_Window * form).
-const char **I_ShaderPresets(int *count);
+void I_ShaderBrowseReset(void);
+const char **I_ShaderBrowse(int *count);
+boolean I_ShaderBrowseGoto(const char *entry);
+boolean I_ShaderEntryIsDir(const char *entry);
+void I_ShaderRowName(const char *entry, char *buf, size_t buf_size);
 const char *I_CurrentShaderPreset(void);
 boolean I_SelectShaderPreset(const char *path);
 boolean I_VulkanActive(void);

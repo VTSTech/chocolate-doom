@@ -21,6 +21,12 @@
 
 #define GLOB_FLAG_NOCASE  0x01
 #define GLOB_FLAG_SORTED  0x02
+// Invert the directory filter: with this flag I_NextGlob() returns only
+// subdirectories of the scanned directory (matching the pattern, sorted
+// like files when GLOB_FLAG_SORTED is set); the "." and ".." entries are
+// always skipped. Without the flag the historical file-only behavior
+// applies.
+#define GLOB_FLAG_DIRS    0x04
 
 typedef struct glob_s glob_t;
 

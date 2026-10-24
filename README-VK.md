@@ -118,13 +118,18 @@ Presets can also be browsed in-game — see "Shader browser" below.
 ## Shader browser (in-game menu)
 
 The **SHADERS** row in the Options menu opens a preset browser in all
-four games. It lists every `.slangp` found in three places, in this
-order: the active preset's own folder, `shaders/` beside the
-executable, and `shaders/` inside the config dir — drop new presets
-into either folder and they appear the next time the browser opens,
-no restart needed. The list pages with a `MORE...` row when it does
-not fit, the active preset is marked with `*`, and Enter applies the
-highlighted preset:
+four games. It walks **one folder at a time**: the browser opens in the
+active preset's own folder (or the drop-in `shaders/` folder beside the
+executable / inside the config dir on a first run), lists that folder's
+subfolders (rendered `NAME/`) and its `.slangp` presets, and offers a
+`..` row whenever there is a parent folder to climb back to — so a
+preset pack laid out like the slang-shaders repo (`crt/`, `handheld/`,
+...) is browsable entirely in-game. Drop new presets into any folder
+and they appear the next time the browser opens, no restart needed.
+The list pages with the arrow keys (up/down one row, left/right a
+windowful), the active preset is marked with `*`, and Enter applies
+the highlighted row — a folder name descends into it, `..` climbs,
+a preset applies:
 
 - **Vulkan path live** — the swap is hot. The new preset is parsed and
   a complete new chain built against the live swapchain *before* the

@@ -286,12 +286,12 @@ static Menu_t AdvancedMenu = {
 //---------------------------------------------------------------------------
 //
 // [CDVK] SHADERS browser (occupies the old SHADERS placeholder row).
-// Shows every .slangp found by I_ShaderPresets() - the active preset's
-// own folder, shaders/ beside the executable, shaders/ in the config
-// dir - as a sliding window: the rows are always a contiguous slice of
-// the full list, up/down moves through all of it (the window follows
-// the cursor), left/right skips a windowful, and a pick is applied
-// with I_SelectShaderPreset(): a live hot-swap when the Vulkan path is
+// Walks one folder of presets at a time via I_ShaderBrowse(): a
+// literal ".." row climbs to the parent folder, subfolder rows descend
+// into them, and .slangp presets apply with I_SelectShaderPreset().
+// Rows are a sliding window over the folder's list: up/down moves
+// through all of it (the window follows the cursor), left/right skips
+// a windowful, and a pick is a live hot-swap when the Vulkan path is
 // up (prepare-then-commit inside i_video_vk.c), or a persist-for-next-
 // run selection on the classic renderer. There is deliberately no
 // "shaders off" row.
@@ -452,7 +452,10 @@ static boolean ShadersScroll(int key)
     return true;
 }
 
-// Open the browser from the Options menu's SHADERS row.
+// Open the browser from the Options menu's SHADERS row. The scan runs
+// here (with the folder reset to its default) so presets dropped into
+// a shaders/ folder mid-session appear without a restart, and the
+// window opens on the active preset.
 static void SCShaders(int option)
 {
     const char *cur;
@@ -460,7 +463,8 @@ static void SCShaders(int option)
     int sel;
 
     option = 0;
-    shaders_list = I_ShaderPresets(&shaders_count);
+    I_ShaderBrowseReset();
+    shaders_list = I_ShaderBrowse(&shaders_count);
     shaders_top = 0;
     sel = 0;
     i = 0;
@@ -486,11 +490,29 @@ static void SCShaders(int option)
     return;
 }
 
-// Enter on a preset row: apply it (option carries the preset index).
+// Enter on a row: ".." climbs to the parent folder, a folder row
+// descends into it, a preset row applies it (option carries the list
+// index). After a folder move the list is re-scanned and the cursor
+// lands on the first row.
 static void SCShadersPick(int option)
 {
     if (option < 0 || option >= shaders_count)
     {
+        return;
+    }
+    if (strcmp(shaders_list[option], "..") == 0
+        || I_ShaderEntryIsDir(shaders_list[option]))
+    {
+        if (I_ShaderBrowseGoto(shaders_list[option]))
+        {
+            shaders_list = I_ShaderBrowse(&shaders_count);
+            ShadersShow(0);
+            S_StartSound(NULL, SFX_FIGHTER_HAMMER_HITWALL);
+        }
+        else
+        {
+            S_StartSound(NULL, SFX_CHAT);
+        }
         return;
     }
     if (I_SelectShaderPreset(shaders_list[option]))
@@ -518,12 +540,12 @@ static void SCShadersNone(int option)
     return;
 }
 
-//
 // Browser draw: a centered SHADERS heading above the window's rows,
 // drawn here in the small FontA at the ITEM_HEIGHT pitch the M_SLCTR
 // cursor rides on (item text is NULL, so MN_Drawer's own FontB row
-// pass draws nothing). The active preset carries a " *" marker; names
-// that would overflow the 320px screen are shaved back.
+// pass draws nothing). Folders render as NAME/ and ".." climbs; the
+// active preset carries a " *" marker; names that would overflow the
+// 320px screen are shaved back.
 //
 static void DrawShadersMenu(void)
 {
@@ -552,16 +574,9 @@ static void DrawShadersMenu(void)
     for (i = 0; i < rows; i++)
     {
         const char *path = shaders_list[shaders_top + i];
-        char *dot;
         size_t len;
 
-        M_snprintf(ShadersNames[i], sizeof(ShadersNames[i]), "%s",
-                   M_BaseName(path));
-        dot = strrchr(ShadersNames[i], '.');
-        if (dot != NULL)
-        {
-            *dot = '\0';
-        }
+        I_ShaderRowName(path, ShadersNames[i], sizeof(ShadersNames[i]));
         len = strlen(ShadersNames[i]);
         while (len > 2 && MN_TextAWidth(ShadersNames[i]) > maxw)
         {

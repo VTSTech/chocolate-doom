@@ -243,16 +243,32 @@ static boolean MatchesAnyGlob(const char *name, glob_t *glob)
 static char *NextGlob(glob_t *glob)
 {
     struct dirent *de;
+    boolean is_dir;
 
-    do
+    for (;;)
     {
         de = readdir(glob->dir);
         if (de == NULL)
         {
             return NULL;
         }
-    } while (IsDirectory(glob->directory, de)
-          || !MatchesAnyGlob(de->d_name, glob));
+        is_dir = IsDirectory(glob->directory, de);
+        if ((glob->flags & GLOB_FLAG_DIRS) != 0)
+        {
+            // Inverted filter: directories only (never the "." and
+            // ".." relative entries).
+            if (is_dir && strcmp(de->d_name, ".") != 0
+                       && strcmp(de->d_name, "..") != 0
+                       && MatchesAnyGlob(de->d_name, glob))
+            {
+                break;
+            }
+        }
+        else if (!is_dir && MatchesAnyGlob(de->d_name, glob))
+        {
+            break;
+        }
+    }
 
     // Return the fully-qualified path, not just the bare filename.
     return M_StringJoin(glob->directory, DIR_SEPARATOR_S, de->d_name, NULL);

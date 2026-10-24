@@ -1398,7 +1398,9 @@ static boolean M_ShadersScroll(int key)
 //
 // Open the browser from the Options menu's SHADERS row. The scan runs
 // here so presets dropped into a shaders/ folder mid-session appear
-// without a restart, and the window opens on the active preset.
+// without a restart, the folder resets to the default (the active
+// preset's own folder, else the drop-in shaders/ folders), and the
+// window opens on the active preset.
 //
 static void M_Shaders(int choice)
 {
@@ -1407,7 +1409,8 @@ static void M_Shaders(int choice)
     int sel;
 
     choice = 0;
-    shaders_list = I_ShaderPresets(&shaders_count);
+    I_ShaderBrowseReset();
+    shaders_list = I_ShaderBrowse(&shaders_count);
     shaders_top = 0;
     sel = 0;
     cur = I_CurrentShaderPreset();
@@ -1432,7 +1435,9 @@ static void M_Shaders(int choice)
     ShadersDef.lastOn = itemOn;
 }
 
-// Enter on a preset row: apply it.
+// Enter on a row: ".." climbs to the parent folder, a folder row
+// descends into it, a preset row applies it. After a folder move the
+// list is re-scanned and the cursor lands on the first row.
 static void M_ShadersPick(int choice)
 {
     int idx = shaders_top + itemOn;
@@ -1440,6 +1445,21 @@ static void M_ShadersPick(int choice)
     choice = 0;
     if (itemOn >= ShadersDef.numitems || idx >= shaders_count)
     {
+        return;
+    }
+    if (strcmp(shaders_list[idx], "..") == 0
+        || I_ShaderEntryIsDir(shaders_list[idx]))
+    {
+        if (I_ShaderBrowseGoto(shaders_list[idx]))
+        {
+            shaders_list = I_ShaderBrowse(&shaders_count);
+            M_ShadersShow(0);
+            S_StartSound(NULL, sfx_pstop);
+        }
+        else
+        {
+            S_StartSound(NULL, sfx_oof);
+        }
         return;
     }
     if (I_SelectShaderPreset(shaders_list[idx]))
@@ -1468,10 +1488,11 @@ static void M_ShadersNone(int choice)
 //
 // [CDVK] Browser draw: the OPTIONS title patch, then this window's
 // rows in the HU font at its natural size - scaled to the M_SVOL item
-// height, a single row reads as a title. The active preset carries a
-// " *" marker; the animated cursor (drawn generically by M_Drawer)
-// rides the row pitch. Names longer than SHADERS_NAME_MAX are cut to
-// ".." (strife has no per-glyph width helper to trim by pixels).
+// height, a single row reads as a title. Folders render as NAME/ and
+// ".." climbs; the active preset carries a " *" marker; the animated
+// cursor (drawn generically by M_Drawer) rides the row pitch. Names
+// longer than SHADERS_NAME_MAX are cut to ".." (strife has no
+// per-glyph width helper to trim by pixels).
 //
 static void M_DrawShadersBrowser(void)
 {
@@ -1501,16 +1522,10 @@ static void M_DrawShadersBrowser(void)
     for (i = 0; i < rows; i++)
     {
         char disp[32];
-        char *dot;
         size_t len;
 
-        M_snprintf(disp, sizeof(disp), "%s",
-                   M_BaseName(shaders_list[shaders_top + i]));
-        dot = strrchr(disp, '.');
-        if (dot != NULL)
-        {
-            *dot = '\0';
-        }
+        I_ShaderRowName(shaders_list[shaders_top + i], disp,
+                        sizeof(disp));
         len = strlen(disp);
         if (len > SHADERS_NAME_MAX)
         {

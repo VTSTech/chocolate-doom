@@ -30,7 +30,12 @@ set(DEDSERV_FILES
     net_structrw.c      net_structrw.h
     z_native.c          z_zone.h)
 
-add_executable("${PROGRAM_PREFIX}server" WIN32 ${COMMON_SOURCE_FILES} ${DEDSERV_FILES})
+# Console subsystem on purpose (no WIN32 here, unlike upstream): the
+# dedicated server's only UI is its stdout — banner, the port it is
+# listening on, errors — and upstream's blanket "Apply WIN32 to
+# executables" (2018) made all of that go nowhere on Windows, leaving
+# a double-clicked server a silent, windowless black box.
+add_executable("${PROGRAM_PREFIX}server" ${COMMON_SOURCE_FILES} ${DEDSERV_FILES})
 target_include_directories("${PROGRAM_PREFIX}server"
                            PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/../")
 

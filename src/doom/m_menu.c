@@ -1066,17 +1066,16 @@ void M_Advanced(int choice)
 
 //
 // [CDVK] SHADERS browser (occupies the old SHADERS placeholder row in
-// the Options menu). Shows every .slangp preset found by
-// I_ShaderPresets() - the active preset's own folder, shaders/ beside
-// the executable, shaders/ in the config dir - as a sliding window:
-// the rows are always a contiguous slice of the full list, up/down
-// moves through all of it (the window follows the cursor), left/right
-// skips a windowful, and a pick is applied with I_SelectShaderPreset():
-// a live hot-swap when the Vulkan path is up (prepare-then-commit
-// inside i_video_vk.c; a broken preset leaves the current shader on
-// screen), or a persist-for-next-run selection on the classic renderer.
-// There is deliberately no "shaders off" row: that removal was its own
-// fix.
+// the Options menu). Walks one folder of presets at a time via
+// I_ShaderBrowse(): a literal ".." row climbs to the parent folder,
+// subfolder rows descend into them, and .slangp presets apply with
+// I_SelectShaderPreset(). Rows are a sliding window over the folder's
+// list: up/down moves through all of it (the window follows the
+// cursor), left/right skips a windowful. A preset pick is a live
+// hot-swap when the Vulkan path is up (prepare-then-commit inside
+// i_video_vk.c; a broken preset leaves the current shader on screen),
+// or a persist-for-next-run selection on the classic renderer. There
+// is deliberately no "shaders off" row: that removal was its own fix.
 //
 #define SHADERS_PAGE_ROWS 8    // visible preset rows (the sliding window)
 
@@ -1232,7 +1231,9 @@ static boolean M_ShadersScroll(int key)
 //
 // Open the browser from the Options menu's SHADERS row. The scan runs
 // here so presets dropped into a shaders/ folder mid-session appear
-// without a restart, and the window opens on the active preset.
+// without a restart, the folder resets to the default (the active
+// preset's own folder, else the drop-in shaders/ folders), and the
+// window opens on the active preset.
 //
 static void M_Shaders(int choice)
 {
@@ -1241,7 +1242,8 @@ static void M_Shaders(int choice)
     int sel;
 
     choice = 0;
-    shaders_list = I_ShaderPresets(&shaders_count);
+    I_ShaderBrowseReset();
+    shaders_list = I_ShaderBrowse(&shaders_count);
     shaders_top = 0;
     sel = 0;
     cur = I_CurrentShaderPreset();
@@ -1266,7 +1268,9 @@ static void M_Shaders(int choice)
     ShadersDef.lastOn = itemOn;
 }
 
-// Enter on a preset row: apply it.
+// Enter on a row: ".." climbs to the parent folder, a folder row
+// descends into it, a preset row applies it. After a folder move the
+// list is re-scanned and the cursor lands on the first row.
 static void M_ShadersPick(int choice)
 {
     int idx = shaders_top + itemOn;
@@ -1274,6 +1278,21 @@ static void M_ShadersPick(int choice)
     choice = 0;
     if (itemOn >= ShadersDef.numitems || idx >= shaders_count)
     {
+        return;
+    }
+    if (strcmp(shaders_list[idx], "..") == 0
+        || I_ShaderEntryIsDir(shaders_list[idx]))
+    {
+        if (I_ShaderBrowseGoto(shaders_list[idx]))
+        {
+            shaders_list = I_ShaderBrowse(&shaders_count);
+            M_ShadersShow(0);
+            S_StartSound(NULL, sfx_pstop);
+        }
+        else
+        {
+            S_StartSound(NULL, sfx_oof);
+        }
         return;
     }
     if (I_SelectShaderPreset(shaders_list[idx]))
@@ -1303,9 +1322,10 @@ static void M_ShadersNone(int choice)
 // [CDVK] Browser draw: title in place of the OPTIONS patch (same ink
 // height as M_DrawAdvanced), then this window's rows in the HU font at
 // its natural size - scaled to the M_MSGOFF item height, a single row
-// reads as a title. The active preset carries a " *" marker; the
-// animated skull (drawn generically by M_Drawer) is the cursor. Rows
-// that would overflow the 320px screen are trimmed to "..".
+// reads as a title. Folders render as NAME/ and ".." climbs; the
+// active preset carries a " *" marker; the animated skull (drawn
+// generically by M_Drawer) is the cursor. Rows that would overflow
+// the 320px screen are trimmed to "..".
 //
 static void M_DrawShadersBrowser(void)
 {
@@ -1339,16 +1359,10 @@ static void M_DrawShadersBrowser(void)
     for (i = 0; i < rows; i++)
     {
         char disp[64];
-        char *dot;
         size_t len;
 
-        M_snprintf(disp, sizeof(disp), "%s",
-                   M_BaseName(shaders_list[shaders_top + i]));
-        dot = strrchr(disp, '.');
-        if (dot != NULL)
-        {
-            *dot = '\0';
-        }
+        I_ShaderRowName(shaders_list[shaders_top + i], disp,
+                        sizeof(disp));
         len = strlen(disp);
         while (len > 2)
         {

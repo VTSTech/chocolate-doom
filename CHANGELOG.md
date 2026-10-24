@@ -11,6 +11,36 @@ matching).
 
 ## [Unreleased]
 
+### Added
+- **The shader browser climbs folders.** The SHADERS menu in all four
+  games now walks one folder at a time instead of flat-listing a
+  merged scan: subfolder rows render as `NAME/`, Enter descends into
+  one, and a literal `..` row (shown whenever the folder has a parent)
+  climbs back up — so preset packs laid out like the slang-shaders
+  repo (`crt/`, `handheld/`, ...) are browsable entirely in-game.
+  The browser still opens on the active preset's own folder (falling
+  back to the drop-in `shaders/` folders, which now appear as
+  descendable rows even when empty), re-scans on every open so
+  mid-session drops show up, and pages exactly as before (up/down one
+  row, left/right a windowful, `*` marks the active preset). Backend
+  is `I_ShaderBrowse()`/`I_ShaderBrowseGoto()` in `i_video.c` (the
+  old `I_ShaderPresets()` flat scan is gone) plus a `GLOB_FLAG_DIRS`
+  mode in `i_glob.c` so the folder listing rides the existing sorted,
+  case-insensitive glob machinery.
+
+### Fixed
+- **chocolate-server is no longer a silent black box on Windows.**
+  Upstream's 2018 blanket "apply WIN32 to executables" built the
+  dedicated server as a GUI-subsystem binary — no console, so its
+  banner and every diagnostic printf went nowhere; a double-clicked
+  server ran (or died) invisibly. The server is now a console app (a
+  console window it actually writes to), its stdout is line-buffered
+  so redirected output survives a kill, and the startup banner names
+  the UDP port it will bind (`-port`, default 2342, echoed back; a
+  bind failure was already an `I_Error` box) plus the
+  `-privateserver` note. Verified in-sandbox: the server boots,
+  prints the banner through a pipe, and serves until killed.
+
 ## [3.0.2] - 2026-10-23
 
 The second point release: the SHADERS menu row becomes a working shader

@@ -1697,94 +1697,82 @@ void I_InitGraphics(void)
 
 
 // ------------------------------------------------------------------
-// [CDVK] SHADERS browser support. Each game's menu lists what this
-// scans and hands a pick back to I_SelectShaderPreset(). Directories,
-// in order: the active preset's own folder (its siblings are the most
-// likely next pick), then "shaders" beside the executable, then
-// "shaders" in the config dir - the drop-in folders, mirroring where
-// gpu-scaler.log and shader-cache live.
+// [CDVK] SHADERS browser support. Each game's menu lists one folder's
+// worth of rows from I_ShaderBrowse() and navigates with
+// I_ShaderBrowseGoto(); a preset pick goes to I_SelectShaderPreset().
+// The browser starts in the active preset's own folder (its siblings
+// are the most likely next pick), else the drop-in "shaders" folder
+// beside the executable or in the config dir - mirroring where
+// gpu-scaler.log and shader-cache live. Subfolders appear as rows and
+// a literal ".." row climbs back up, so a preset pack laid out like
+// the slang-shaders repo (crt/, handheld/, ...) is browsable in-game.
 // ------------------------------------------------------------------
 
-#define I_SHADER_MAX_PRESETS 64
+#define I_SHADER_BROWSE_MAX 128
+#define I_SHADER_DIR_MAX    512
 
-static const char *shader_presets[I_SHADER_MAX_PRESETS];
-static int shader_presets_n = 0;
+// The browser's current folder ("" = unset; the next I_ShaderBrowse
+// picks the default). Full paths only - never relative.
+static char shader_browse_dir[I_SHADER_DIR_MAX];
 
-// Append one directory's *.slangp files (full paths from I_StartGlob),
-// deduped against what earlier directories already contributed.
-static void ScanShaderDir(const char *dir)
+// The current folder's rows, rebuilt by every I_ShaderBrowse call.
+// Strings are M_StringDuplicate/M_StringJoin'd; freed on the next scan.
+static const char *shader_browse[I_SHADER_BROWSE_MAX];
+static int shader_browse_n = 0;
+
+// True when dir can be opened at all (opendir succeeds) - used to skip
+// nonexistent default-candidate folders.
+static boolean ShaderDirOpenable(const char *dir)
 {
-    glob_t *glob;
-    const char *path;
+    glob_t *glob = I_StartGlob(dir, "*", GLOB_FLAG_NOCASE);
 
-    if (dir == NULL || dir[0] == '\0')
-    {
-        return;
-    }
-    glob = I_StartGlob(dir, "*.slangp", GLOB_FLAG_NOCASE | GLOB_FLAG_SORTED);
     if (glob == NULL)
     {
-        return;
-    }
-    while ((path = I_NextGlob(glob)) != NULL
-           && shader_presets_n < I_SHADER_MAX_PRESETS)
-    {
-        int i;
-        boolean dup = false;
-        for (i = 0; i < shader_presets_n; ++i)
-        {
-            if (strcmp(shader_presets[i], path) == 0)
-            {
-                dup = true;
-                break;
-            }
-        }
-        if (!dup)
-        {
-            shader_presets[shader_presets_n++] = M_StringDuplicate(path);
-        }
+        return false;
     }
     I_EndGlob(glob);
+    return true;
 }
 
-const char **I_ShaderPresets(int *count)
+// Pick the browser's default folder (I_ShaderBrowseReset cleared the
+// current one). Priority: the active preset's own folder, then the
+// drop-in shaders folders, then just the exe/config dirs so a not-yet-
+// created shaders/ at least shows up as a descendable row.
+static void ShaderBrowseDefault(void)
 {
-    char *dir;
-    char buf[512];
-    int n;
+    char buf[I_SHADER_DIR_MAX];
+    char *dir = M_DirName(shader_preset != NULL ? shader_preset : "");
 
-    // Re-scan on every call (a few readdirs): presets dropped into the
-    // folder mid-session show up the next time the browser opens. The
-    // previous batch is freed first.
-    for (n = 0; n < shader_presets_n; ++n)
+    if (dir != NULL && dir[0] != '\0' && strcmp(dir, ".") != 0
+        && ShaderDirOpenable(dir))
     {
-        free((char *) shader_presets[n]);
-        shader_presets[n] = NULL;
-    }
-    shader_presets_n = 0;
-
-    // 1) Siblings of the active preset ("shaders/foo.slangp" ->
-    //    "shaders"; a bare filename has no folder to scan).
-    dir = M_DirName(shader_preset != NULL ? shader_preset : "");
-    if (dir != NULL && dir[0] != '\0'
-        && strcmp(dir, ".") != 0)
-    {
-        ScanShaderDir(dir);
+        M_snprintf(shader_browse_dir, sizeof(shader_browse_dir), "%s", dir);
+        free(dir);
+        return;
     }
     free(dir);
 
-    // 2) <exedir>/shaders - exedir already ends in a separator.
+    // <exedir>/shaders - exedir already ends in a separator.
     if (exedir != NULL)
     {
         M_snprintf(buf, sizeof(buf), "%sshaders", exedir);
-        ScanShaderDir(buf);
+        if (ShaderDirOpenable(buf))
+        {
+            M_snprintf(shader_browse_dir, sizeof(shader_browse_dir),
+                       "%s", buf);
+            return;
+        }
+        M_snprintf(shader_browse_dir, sizeof(shader_browse_dir), "%s",
+                   exedir);
+        return;
     }
 
-    // 3) <configdir>/shaders - configdir "conventionally" ends in
-    //    a separator (M_SetConfigDir); add one when it doesn't.
+    // <configdir>/shaders - configdir "conventionally" ends in a
+    // separator (M_SetConfigDir); add one when it doesn't.
     if (configdir != NULL && configdir[0] != '\0')
     {
-        n = (int) strlen(configdir);
+        int n = (int) strlen(configdir);
+
         if (configdir[n-1] == '/' || configdir[n-1] == '\\')
         {
             M_snprintf(buf, sizeof(buf), "%sshaders", configdir);
@@ -1794,14 +1782,223 @@ const char **I_ShaderPresets(int *count)
             M_snprintf(buf, sizeof(buf), "%s%cshaders", configdir,
                        DIR_SEPARATOR);
         }
-        ScanShaderDir(buf);
+        if (ShaderDirOpenable(buf))
+        {
+            M_snprintf(shader_browse_dir, sizeof(shader_browse_dir),
+                       "%s", buf);
+            return;
+        }
+        M_snprintf(shader_browse_dir, sizeof(shader_browse_dir), "%s",
+                   configdir);
+    }
+}
+
+void I_ShaderBrowseReset(void)
+{
+    shader_browse_dir[0] = '\0';
+}
+
+// The folder one ".." above dir, or NULL when dir is a filesystem root
+// (nothing left to climb). M_DirName has sharp edges this smooths over:
+// a top-level POSIX folder ("M_DirName("/usr")" -> "") still climbs to
+// "/", a Windows drive root stays put ("C:" alone means the drive's
+// current directory, and "C:\" has no parent), and a bare name's "."
+// means no climb either.
+static char *ShaderDirParent(const char *dir)
+{
+    char *parent = M_DirName(dir);
+
+    if (parent == NULL)
+    {
+        return NULL;
+    }
+#ifdef _WIN32
+    if (strlen(parent) == 2 && parent[1] == ':')
+    {
+        char *root = M_StringJoin(parent, DIR_SEPARATOR_S, NULL);
+
+        free(parent);
+        parent = root;
+    }
+#endif
+    if (parent[0] == '\0' || strcmp(parent, ".") == 0
+        || strcmp(parent, dir) == 0)
+    {
+        free(parent);
+        if ((dir[0] == '/' || dir[0] == '\\') && strlen(dir) > 1)
+        {
+            return M_StringDuplicate("/");
+        }
+        return NULL;
+    }
+    return parent;
+}
+
+// Folder rows carry a trailing DIR_SEPARATOR (I_ShaderEntryIsDir's
+// marker); presets are plain full paths.
+boolean I_ShaderEntryIsDir(const char *entry)
+{
+    size_t len;
+
+    if (entry == NULL)
+    {
+        return false;
+    }
+    len = strlen(entry);
+    return len > 0 && (entry[len - 1] == '/' || entry[len - 1] == '\\');
+}
+
+// Append one row (bounds-checked); drops rows past the cap. A preset
+// pack root can hold more folders than the cap when someone browses
+// the slang-shaders checkout itself; the window just shows fewer.
+static void ShaderBrowseAppend(char *row)
+{
+    if (shader_browse_n < I_SHADER_BROWSE_MAX)
+    {
+        shader_browse[shader_browse_n++] = row;
+    }
+    else
+    {
+        free(row);
+    }
+}
+
+const char **I_ShaderBrowse(int *count)
+{
+    glob_t *glob;
+    const char *path;
+    char *parent;
+    int n;
+
+    // Re-scan on every call (a few readdirs). The previous rows are
+    // freed first.
+    for (n = 0; n < shader_browse_n; ++n)
+    {
+        free((char *) shader_browse[n]);
+        shader_browse[n] = NULL;
+    }
+    shader_browse_n = 0;
+
+    if (shader_browse_dir[0] == '\0')
+    {
+        ShaderBrowseDefault();
+    }
+
+    // 1) The ".." row, whenever this folder has a parent to climb to.
+    parent = ShaderDirParent(shader_browse_dir);
+    if (parent != NULL)
+    {
+        ShaderBrowseAppend(M_StringDuplicate(".."));
+        free(parent);
+    }
+
+    // 2) Subfolders, sorted (full paths from I_StartGlob, marker added).
+    glob = I_StartGlob(shader_browse_dir, "*",
+                       GLOB_FLAG_NOCASE | GLOB_FLAG_SORTED | GLOB_FLAG_DIRS);
+    if (glob != NULL)
+    {
+        while ((path = I_NextGlob(glob)) != NULL)
+        {
+            ShaderBrowseAppend(M_StringJoin(path, DIR_SEPARATOR_S, NULL));
+        }
+        I_EndGlob(glob);
+    }
+
+    // 3) Presets, sorted. An unreadable folder (deleted under us,
+    //    permissions) lands here with zero rows; the ".." row - or the
+    //    menus' no-shaders fallback - is the way out.
+    glob = I_StartGlob(shader_browse_dir, "*.slangp",
+                       GLOB_FLAG_NOCASE | GLOB_FLAG_SORTED);
+    if (glob != NULL)
+    {
+        while ((path = I_NextGlob(glob)) != NULL)
+        {
+            ShaderBrowseAppend(M_StringDuplicate(path));
+        }
+        I_EndGlob(glob);
     }
 
     if (count != NULL)
     {
-        *count = shader_presets_n;
+        *count = shader_browse_n;
     }
-    return shader_presets;
+    return shader_browse;
+}
+
+boolean I_ShaderBrowseGoto(const char *entry)
+{
+    char target[I_SHADER_DIR_MAX];
+    size_t len;
+
+    if (entry == NULL || entry[0] == '\0')
+    {
+        return false;
+    }
+
+    if (strcmp(entry, "..") == 0)
+    {
+        char *parent = ShaderDirParent(shader_browse_dir);
+
+        if (parent == NULL)
+        {
+            return false;
+        }
+        M_snprintf(target, sizeof(target), "%s", parent);
+        free(parent);
+    }
+    else if (I_ShaderEntryIsDir(entry))
+    {
+        // Descend; strip the marker separator(s) so the stored folder
+        // is canonical (but keep a lone "/" root as-is).
+        M_snprintf(target, sizeof(target), "%s", entry);
+        len = strlen(target);
+        while (len > 1 && (target[len - 1] == '/'
+                           || target[len - 1] == '\\'))
+        {
+            target[--len] = '\0';
+        }
+    }
+    else
+    {
+        return false;
+    }
+
+    M_snprintf(shader_browse_dir, sizeof(shader_browse_dir), "%s", target);
+    return true;
+}
+
+// Row label: ".." as-is; folders as NAME/ (basename minus the marker,
+// slash re-added for display); presets as NAME (extension stripped).
+void I_ShaderRowName(const char *entry, char *buf, size_t buf_size)
+{
+    char tmp[I_SHADER_DIR_MAX];
+    char *dot;
+    size_t len;
+
+    if (strcmp(entry, "..") == 0)
+    {
+        M_snprintf(buf, buf_size, "..");
+        return;
+    }
+    if (I_ShaderEntryIsDir(entry))
+    {
+        M_snprintf(tmp, sizeof(tmp), "%s", entry);
+        len = strlen(tmp);
+        while (len > 1 && (tmp[len - 1] == '/' || tmp[len - 1] == '\\'))
+        {
+            tmp[--len] = '\0';
+        }
+        M_snprintf(buf, buf_size, "%s%c", M_BaseName(tmp),
+                   DIR_SEPARATOR);
+        return;
+    }
+    M_snprintf(tmp, sizeof(tmp), "%s", M_BaseName(entry));
+    dot = strrchr(tmp, '.');
+    if (dot != NULL)
+    {
+        *dot = '\0';
+    }
+    M_snprintf(buf, buf_size, "%s", tmp);
 }
 
 const char *I_CurrentShaderPreset(void)
