@@ -9,6 +9,23 @@ Versions: this repository's release tags (`v3` ships as package
 version `3.0.0`; point releases tag as `3.0.<n>`, package version
 matching).
 
+## [Unreleased]
+
+### Added
+- **The crash trap covers the CRT's silent leg.** A CRT call handed a
+  bad argument (a bad `FILE *`, a bad mode, ...) does not raise an SEH
+  exception and does not raise `SIGABRT` — release builds jump straight
+  to `0xC0000409` fastfail from inside the runtime, invisible to both
+  handlers the server already had. That is precisely the shape of the
+  bare-run death whose boot log stops one stage short. MSVC builds now
+  install an invalid-parameter handler that names the argument,
+  function and source line in the boot log, mirrors the report in the
+  message box, and exits with code 4 (3 = abort; GS-cookie and
+  range-check fastfails stay uncatchable by OS design, so
+  `$LASTEXITCODE` still arbitrates those). The boot log also gained
+  two stages — `args parsed` and `stdout line-buffered` — so the next
+  crash log pins the killer down to a single CRT call.
+
 ## [3.0.3] - 2026-10-24
 
 The third point release: the dedicated server becomes a diagnosable

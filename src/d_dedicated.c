@@ -39,6 +39,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <signal.h>
+#include <stdint.h>
 
 // Translate the handful of exception codes that actually show up in the
 // field into plain English. Everything else prints as a raw hex code.
@@ -101,6 +102,54 @@ static void DED_AbortHandler(int sig)
                       "chocolate-server crashed", MB_OK | MB_ICONERROR);
     _exit(3);
 }
+
+#if defined(_MSC_VER)
+// The third silent-death leg: the UCRT's invalid-parameter path. A CRT call
+// handed a bad argument (a bad FILE *, a bad mode, ...) does not raise an
+// SEH exception and does not raise SIGABRT — release builds jump straight
+// to __fastfail (0xC0000409) from inside the runtime, invisible to both
+// handlers above. That is the exact shape of a death whose only symptom
+// is a boot log that stops one stage short. Installing a handler catches
+// the failure while it is still an ordinary C function call.
+static int DED_in_invalid_param;
+
+static void __cdecl DED_InvalidParamHandler(
+    const wchar_t *expression, const wchar_t *function,
+    const wchar_t *file, unsigned int line, uintptr_t reserved)
+{
+    (void) reserved;
+
+    // Never reenter: DED_BootLog's stdio calls are CRT calls too, and if
+    // whatever broke the CRT broke it thoroughly, the plain exit code is
+    // the report.
+    if (DED_in_invalid_param)
+    {
+        _exit(4);
+    }
+    DED_in_invalid_param = 1;
+
+    fprintf(stderr, "chocolate-server: CRT invalid parameter "
+                    "(%ls in %ls, %ls:%u)\n",
+            expression ? expression : L"?",
+            function ? function : L"?",
+            file ? file : L"?", line);
+    fflush(stderr);
+
+    DED_BootLog("CRASH: CRT invalid parameter (%ls in %ls, %ls:%u)",
+                expression ? expression : L"?",
+                function ? function : L"?",
+                file ? file : L"?", line);
+
+    MessageBoxA(NULL, "The C runtime rejected a call (invalid parameter).\n"
+                      "Details are in chocolate-server.log or the console "
+                      "output.",
+                "chocolate-server crashed", MB_OK | MB_ICONERROR);
+
+    // Exit code 4 = CRT invalid parameter (3 = abort,
+    // 0xC0000409 = fastfail, 0xC0000005 = access violation).
+    _exit(4);
+}
+#endif
 #endif
 
 // The default listen port lives in net_sdl.c (NET_SDL_InitServer parses
@@ -190,7 +239,10 @@ void D_DoomMain(void)
     // uncatchable — that one stays a plain instant death by design.
     SetUnhandledExceptionFilter(DED_CrashFilter);
     signal(SIGABRT, DED_AbortHandler);
-    DED_BootLog("boot: crash trap installed");
+#if defined(_MSC_VER)
+    _set_invalid_parameter_handler(DED_InvalidParamHandler);
+#endif
+    DED_BootLog("boot: crash trap installed (%i args)", myargc);
 #endif
 
     // --help needs handling BEFORE anything else: with no handler it
@@ -202,6 +254,11 @@ void D_DoomMain(void)
         exit(0);
     }
 
+    // Statement-level breadcrumb: past the arg scan, before setvbuf —
+    // the two CRT calls this gap contains are the bare-run crash
+    // window, and "args parsed" present-but-nothing-else pins setvbuf.
+    DED_BootLog("boot: args parsed");
+
     // The console is the dedicated server's whole UI, so make sure it
     // actually says something. Line-buffered stdout keeps the banner
     // (and anything after it) visible when the output is redirected to
@@ -209,6 +266,7 @@ void D_DoomMain(void)
     // take its whole buffered log with it (the per-line-flush rule the
     // gpu-scaler.log batch introduced for the same reason).
     setvbuf(stdout, NULL, _IOLBF, 0);
+    DED_BootLog("boot: stdout line-buffered");
     DED_BootLog("boot: console ready");
 
     // PACKAGE_STRING ("Chocolate Doom VK 3.0.3"), not the bare package
