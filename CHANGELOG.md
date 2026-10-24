@@ -82,6 +82,25 @@ matching).
   bind failure was already an `I_Error` box) plus the
   `-privateserver` note. Verified in-sandbox: the server boots,
   prints the banner through a pipe, and serves until killed.
+- **MSYS2 (MinGW) builds link the server again.** The MSYS2 CI job
+  died at `chocolate-server.exe` with `undefined reference to
+  SDL_main`: `CMAKE_FIND_PACKAGE_PREFER_CONFIG` (default On) makes
+  `find_package(SDL2)` use SDL2's own package config, and on MinGW
+  its `SDL2::SDL2main` target carries `-Wl,--undefined=WinMain` —
+  which force-loads SDL2main's `WinMain` object, which calls
+  `SDL_main`, a symbol the server no longer defines now that its
+  `main()` is a real `main` (`SDL_MAIN_HANDLED`). MSVC console exes
+  never reference `WinMain`, which is why only the MSYS2 job broke.
+  The server now links without SDL2main on Windows (it needs none of
+  it); game binaries keep their exact linkage, and non-Windows
+  platforms are untouched.
+- **No more bogus `%zu` format warnings on MinGW.** GCC's MinGW
+  `printf` format archetype predates C99 and flagged every `%zu` in
+  `I_Error`/`M_snprintf` messages (`unknown conversion type
+  character 'z'`) even though the UCRT runtime formats it correctly;
+  the printf attribute is now `gnu_printf` under MinGW
+  (`doomtype.h`, `textscreen/txt_main.h`), which knows the full C99
+  set.
 
 ## [3.0.2] - 2026-10-23
 

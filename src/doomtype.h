@@ -13,8 +13,8 @@
 // GNU General Public License for more details.
 //
 // DESCRIPTION:
-//	Simple basic typedefs, isolated here to make it easier
-//	 separating modules.
+//      Simple basic typedefs, isolated here to make it easier
+//       separating modules.
 //    
 
 
@@ -65,7 +65,14 @@
 #define PACKEDATTR __attribute__((packed))
 #endif
 
+#if defined(__MINGW32__) || defined(__MINGW64__)
+// MinGW's printf archetype is ms_printf, which predates C99 and warns
+// about every %zu even though the runtime (UCRT, or mingw's own stdio)
+// formats it correctly. gnu_printf knows the full C99 set.
+#define PRINTF_ATTR(fmt, first) __attribute__((format(gnu_printf, fmt, first)))
+#else
 #define PRINTF_ATTR(fmt, first) __attribute__((format(printf, fmt, first)))
+#endif
 #define PRINTF_ARG_ATTR(x) __attribute__((format_arg(x)))
 #define NORETURN __attribute__((noreturn))
 

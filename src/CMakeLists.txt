@@ -43,8 +43,9 @@ target_include_directories("${PROGRAM_PREFIX}server"
 # but a console-subsystem server wants the opposite: SDL_MAIN_HANDLED
 # keeps "main" as a real "main", so mainCRTStartup resolves natively
 # under MSVC and MinGW's console entry no longer detours through WinMain
-# either. SDL2main stays linked (harmless, unused WinMain) so the target
-# keeps sharing SDL_LINK_LIBS with everything else.
+# either. With the entry point handled, SDL2main contributes nothing to
+# this target — and on MinGW it actively breaks the link (see the
+# SERVER_LINK_LIBS reasoning below for why it has to go).
 target_compile_definitions("${PROGRAM_PREFIX}server" PRIVATE SDL_MAIN_HANDLED)
 
 if (DEFINED EMSCRIPTEN)
@@ -67,7 +68,24 @@ else()
     endif()
 endif()
 
-target_link_libraries("${PROGRAM_PREFIX}server" ${SDL_LINK_LIBS})
+# SERVER_LINK_LIBS: SDL_LINK_LIBS minus SDL2main on Windows. With
+# SDL_MAIN_HANDLED above the server keeps its native main(), so SDL2main
+# contributes nothing there — and on MinGW it actively breaks the link:
+# CMAKE_FIND_PACKAGE_PREFER_CONFIG (default On) makes find_package(SDL2)
+# resolve to SDL2's own package config, and its SDL2::SDL2main target
+# carries "-Wl,--undefined=WinMain" on MinGW. That flag force-loads
+# SDL2main's WinMain object, which calls SDL_main — a symbol the server
+# no longer defines, because its main() is not renamed. The vendored
+# FindSDL2 module has no such flag, which is why this only showed up
+# where the package config wins (MSYS2: "undefined reference to
+# SDL_main"). MSVC console exes never reference WinMain either, so the
+# server needs no SDL2main on any Windows toolchain. Other platforms
+# keep the exact linkage that has always worked.
+set(SERVER_LINK_LIBS ${SDL_LINK_LIBS})
+if(WIN32)
+    list(REMOVE_ITEM SERVER_LINK_LIBS SDL2::SDL2main)
+endif()
+target_link_libraries("${PROGRAM_PREFIX}server" ${SERVER_LINK_LIBS})
 set_target_properties("${PROGRAM_PREFIX}server" PROPERTIES COMPILE_FLAGS "${SDL_FLAGS}")
 set_target_properties("${PROGRAM_PREFIX}server" PROPERTIES LINK_FLAGS "${SDL_FLAGS}")
 
