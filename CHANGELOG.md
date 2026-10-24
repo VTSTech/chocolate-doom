@@ -26,6 +26,18 @@ matching).
   two stages — `args parsed` and `stdout unbuffered` — and that is
   what closed the case: the user's next crash log ended at
   `args parsed`.
+- **Every CI artifact now carries its commit.** All four
+  artifact-producing jobs across `main.yml` and `vk-shaders.yml` stamp
+  what they upload: a `BUILD-INFO.txt` (full commit hash, ref, event,
+  package version, UTC build time, run URL) rides inside each zip and
+  tarball, the artifact names in the Actions UI gain the short hash
+  (`MSYS2 UCRT64-<hash>`, `chocolate-doom-vk-windows-msvc-<hash>`,
+  ...), and branch/PR builds of the MSYS2 release job append it to the
+  game zip filenames themselves
+  (`chocolate-doom-3.0.3-win64-<hash>.zip`) so two runs of the same
+  version can be told apart. Tag builds keep the canonical
+  `<game>-<version>-<arch>.zip` names for the GitHub Release; their
+  `BUILD-INFO.txt` still pins the exact commit.
 
 ### Fixed
 - **The server's bare-run instant crash on Windows: found, understood,

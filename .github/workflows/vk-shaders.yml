@@ -159,12 +159,22 @@ jobs:
 
           See README-VK.md in the repository for full documentation.
           EOF
+          # Commit stamp so every artifact is traceable to its build.
+          cat > pkg/BUILD-INFO.txt <<EOF
+          commit: ${GITHUB_SHA}
+          short:  ${GITHUB_SHA::8}
+          ref:    ${GITHUB_REF}
+          event:  ${GITHUB_EVENT_NAME}
+          built:  $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          run:    ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          EOF
+          echo "SHORT_SHA=${GITHUB_SHA::8}" >> $GITHUB_ENV
           tar czf chocolate-doom-vk-linux-x64.tar.gz -C pkg .
           tar tzf chocolate-doom-vk-linux-x64.tar.gz | head -40
 
       - uses: actions/upload-artifact@v4
         with:
-          name: chocolate-doom-vk-linux-x64
+          name: chocolate-doom-vk-linux-x64-${{ env.SHORT_SHA }}
           path: chocolate-doom-vk-linux-x64.tar.gz
 
   windows-msys2:
@@ -217,6 +227,16 @@ jobs:
           for exe in build/src/chocolate-{doom,heretic,hexen,strife,setup}.exe; do
             ldd "$exe" | grep ucrt64 | cut -d' ' -f3 || true
           done | sort -u | xargs -r -I{} cp {} pkg/
+          # Commit stamp so the artifact is traceable to its build.
+          cat > pkg/BUILD-INFO.txt <<EOF
+          commit: ${GITHUB_SHA}
+          short:  ${GITHUB_SHA::8}
+          ref:    ${GITHUB_REF}
+          event:  ${GITHUB_EVENT_NAME}
+          built:  $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          run:    ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          EOF
+          echo "SHORT_SHA=${GITHUB_SHA::8}" >> $GITHUB_ENV
           # zip needs real file arguments: a bare "." without -r matches
           # nothing and exits 12 ("Nothing to do"). Glob instead.
           cd pkg
@@ -224,7 +244,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: chocolate-doom-vk-windows-ucrt64
+          name: chocolate-doom-vk-windows-ucrt64-${{ env.SHORT_SHA }}
           path: chocolate-doom-vk-windows-ucrt64.zip
 
   windows-msvc:
@@ -274,9 +294,21 @@ jobs:
           if (Test-Path build\vcpkg_installed) {
             Copy-Item build\vcpkg_installed\x64-windows\bin\*.dll pkg\
           }
+          # Commit stamp so the artifact is traceable to its build.
+          $shortSha = $env:GITHUB_SHA.Substring(0, 8)
+          $buildInfo = @"
+          commit:  $env:GITHUB_SHA
+          short:   $shortSha
+          ref:     $env:GITHUB_REF
+          event:   $env:GITHUB_EVENT_NAME
+          built:   $((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss UTC'))
+          run:     $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID
+          "@
+          $buildInfo | Set-Content -Path pkg/BUILD-INFO.txt
+          Add-Content -Path $env:GITHUB_ENV -Value "SHORT_SHA=$shortSha"
           Compress-Archive -Path pkg\* -DestinationPath chocolate-doom-vk-windows-msvc.zip -Force
 
       - uses: actions/upload-artifact@v4
         with:
-          name: chocolate-doom-vk-windows-msvc
+          name: chocolate-doom-vk-windows-msvc-${{ env.SHORT_SHA }}
           path: chocolate-doom-vk-windows-msvc.zip

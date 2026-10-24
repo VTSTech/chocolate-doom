@@ -129,11 +129,42 @@ jobs:
           cd ${{ matrix.config.pkg-dir }}
           make
 
+      # Stamp every zip with the commit it was built from: a BUILD-INFO.txt
+      # goes inside each zip, and branch/PR builds append the short hash to
+      # the zip filenames too, so two runs of the same version can be told
+      # apart. Tag builds keep the canonical <game>-<version>-<arch>.zip
+      # names for the GitHub Release; their BUILD-INFO.txt still records
+      # the exact commit.
+      - name: Stamp commit hash into packages
+        if: ${{ matrix.config.artifacts }}
+        run: |
+          SHORT_SHA=${GITHUB_SHA::8}
+          echo "SHORT_SHA=${SHORT_SHA}" >> $GITHUB_ENV
+          PACKAGE_STRING=`sed -n '/PACKAGE_STRING/p' ${GITHUB_WORKSPACE}/config.h | cut -d '"' -f 2`
+          cd ${{ matrix.config.pkg-dir }}
+          cat > BUILD-INFO.txt <<EOF
+          Chocolate Doom VK
+          commit:  ${GITHUB_SHA}
+          short:   ${SHORT_SHA}
+          ref:     ${GITHUB_REF}
+          event:   ${GITHUB_EVENT_NAME}
+          version: ${PACKAGE_STRING}
+          built:   `date -u '+%Y-%m-%d %H:%M:%S UTC'`
+          run:     ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          EOF
+          for z in *.zip; do
+            zip "$z" BUILD-INFO.txt
+            if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+              mv "$z" "${z%.zip}-${SHORT_SHA}.zip"
+            fi
+          done
+          rm -f BUILD-INFO.txt
+
       - name: Upload artifacts
         if: ${{ matrix.config.artifacts }}
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.config.name }}
+          name: ${{ matrix.config.name }}-${{ env.SHORT_SHA }}
           path: ${{ matrix.config.pkg-path }}
 
       - name: Extract Package String
