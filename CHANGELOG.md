@@ -12,6 +12,24 @@ matching).
 ## [Unreleased]
 
 ### Added
+- **Frame limiter + present mode selection for the Vulkan presenter.**
+  `vk_fps_cap` / `-vkfps <n>` holds each present until a minimum
+  interval has elapsed since the last accepted one (performance-counter
+  timed: millisecond sleep, then a bounded busy-wait tail —
+  `SDL_Delay`'s scheduler-tick rounding alone would cost whole frames
+  at 60+ caps), giving a hard presents-per-second ceiling for GPU load
+  and battery relief (`-vkfps 30`) and the throttle that non-pacing
+  present modes need. `vk_present_mode` / `-vkpm <n>` selects the
+  swapchain present mode — FIFO (default, vsync), MAILBOX (triple
+  buffered, queued frames replaced), IMMEDIATE (may tear),
+  FIFO_RELAXED — availability-checked against the surface with a
+  silent FIFO fallback, and MAILBOX gets its third swapchain image so
+  replace-queued-frames semantics actually engage. A cap above the
+  natural rate is a no-op: the tic-coupled loop presents once per
+  35 Hz game tic and FIFO paces at the display refresh, so this paces
+  presentation only — game logic stays vanilla-locked. The boot log
+  names the resolved mode and any active limiter; the stats overlay's
+  fps row reflects the cap automatically.
 - **The crash trap covers the CRT's silent leg.** A CRT call handed a
   bad argument (a bad `FILE *`, a bad mode, ...) does not raise an SEH
   exception and does not raise `SIGABRT` — release builds jump straight

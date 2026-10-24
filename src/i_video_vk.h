@@ -30,6 +30,22 @@ extern int usevulkan;
 // classic renderer on any failure.
 extern char *shader_preset;
 
+// Frame limiter (config "vk_fps_cap" + -vkfps <n>): maximum presents per
+// second, 0 = off (default). Applied ahead of the swapchain, so it
+// composes with any present mode; a cap above the natural rate is a
+// no-op (the main loop presents once per 35 Hz game tic, and FIFO
+// paces at the display refresh). Vulkan path only; ignored by the
+// classic renderer.
+extern int vk_fps_cap;
+
+// Swapchain present mode (config "vk_present_mode" + -vkpm <n>):
+// 0 = FIFO (default; vsync, guaranteed on every surface), 1 = MAILBOX
+// (triple buffer, queued frames replaced — tear-free without pacing the
+// queue), 2 = IMMEDIATE (no pacing, may tear), 3 = FIFO_RELAXED (vsync
+// that unblocks when a frame is late). A mode the surface does not
+// support falls back to FIFO. Vulkan path only.
+extern int vk_present_mode;
+
 // -vkdebug: enable the Vulkan validation layer for this run.
 extern int vk_debug;
 

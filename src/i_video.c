@@ -1255,6 +1255,49 @@ void I_GraphicsCheckCommandLine(void)
 
     //!
     // @category video
+    // @arg <fps>
+    //
+    // Cap the Vulkan presenter at this many presents per second
+    // (0 = off, the default). Applied ahead of the swapchain, so it
+    // also throttles MAILBOX and IMMEDIATE present modes; a cap above
+    // the natural rate (~35 fps, one present per game tic, vsynced by
+    // FIFO) is a no-op. Low caps trade responsiveness for GPU load /
+    // battery (e.g. -vkfps 30). Vulkan path only.
+    //
+
+    i = M_CheckParmWithArgs("-vkfps", 1);
+    if (i > 0)
+    {
+        vk_fps_cap = atoi(myargv[i + 1]);
+        if (vk_fps_cap < 0)
+        {
+            vk_fps_cap = 0;
+        }
+    }
+
+    //!
+    // @category video
+    // @arg <mode>
+    //
+    // Vulkan swapchain present mode: 0 = FIFO (default, vsync),
+    // 1 = MAILBOX (triple buffered, queued frames replaced — pairs
+    // with -vkfps), 2 = IMMEDIATE (no pacing, may tear), 3 =
+    // FIFO_RELAXED (vsync except when late). Modes a surface does not
+    // support fall back to FIFO. Vulkan path only.
+    //
+
+    i = M_CheckParmWithArgs("-vkpm", 1);
+    if (i > 0)
+    {
+        vk_present_mode = atoi(myargv[i + 1]);
+        if (vk_present_mode < 0 || vk_present_mode > 3)
+        {
+            vk_present_mode = 0;
+        }
+    }
+
+    //!
+    // @category video
     //
     // Disable the on-screen stats overlay (FPS, graphics
     // backend, active shader) for this run. Scroll Lock
@@ -2065,4 +2108,6 @@ void I_BindVideoVariables(void)
     M_BindStringVariable("shader",                   &shader_preset);
     M_BindIntVariable("vkstats",                    &vkstats);
     M_BindIntVariable("shader_base_resolution",  &shader_base_resolution);
+    M_BindIntVariable("vk_fps_cap",                 &vk_fps_cap);
+    M_BindIntVariable("vk_present_mode",            &vk_present_mode);
 }

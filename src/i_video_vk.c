@@ -45,6 +45,7 @@
 #include "config.h"
 #include "doomtype.h"
 #include "i_system.h"
+#include "i_timer.h"
 #include "i_video.h"
 #include "i_video_vk.h"
 #include "i_log.h"
@@ -63,6 +64,8 @@ char *shader_preset = "";       // activation: setting a preset activates VK
 int vk_debug = 0;              // -vkdebug: validation layers
 int vk_capture_frame = 0;       // -vkcapture <n>: dump frame n as vkframe.tga
 int shader_base_resolution = 0; // -vkbase: base canvas size (0=auto, 320xk)
+int vk_fps_cap = 0;             // -vkfps <n>: presents/sec ceiling (0 = off)
+int vk_present_mode = 0;        // -vkpm <n>: FIFO/MAILBOX/IMMEDIATE/FIFO_RELAXED
 
 // window_width/window_height/fullscreen_width/fullscreen_height are
 // declared in i_video.h (this file includes it): cross-file declarations
@@ -182,6 +185,12 @@ static int vk_base_mult = 1;
 static uint64_t vk_frame_count = 0;
 static uint64_t vk_last_pc = 0;
 
+// Frame limiter pacing state (vk_fps_cap): performance-counter stamp of
+// the last accepted present. Deliberately separate from vk_last_pc,
+// whose delta feeds fi.frame_delta_us and must stay the presenter's
+// true inter-frame timing as seen by the shader chain.
+static uint64_t vk_cap_last_pc = 0;
+
 // PrintScreen hotkey request (set by I_VK_RequestCapture from the event
 // pump in i_video.c, consumed in I_VK_FinishUpdate right where -vkcapture
 // reads the presented image — after the chain render, before present).
@@ -197,6 +206,7 @@ static PFN_vkGetDeviceProcAddr vkGetDeviceProcAddr_ = NULL;
 static PFN_vkGetPhysicalDeviceSurfaceSupportKHR vkGetPhysicalDeviceSurfaceSupportKHR_ = NULL;
 static PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR vkGetPhysicalDeviceSurfaceCapabilitiesKHR_ = NULL;
 static PFN_vkGetPhysicalDeviceSurfaceFormatsKHR vkGetPhysicalDeviceSurfaceFormatsKHR_ = NULL;
+static PFN_vkGetPhysicalDeviceSurfacePresentModesKHR vkGetPhysicalDeviceSurfacePresentModesKHR_ = NULL;
 static PFN_vkDestroySurfaceKHR vkDestroySurfaceKHR_ = NULL;
 static PFN_vkCreateSwapchainKHR vkCreateSwapchainKHR_ = NULL;
 static PFN_vkDestroySwapchainKHR vkDestroySwapchainKHR_ = NULL;
@@ -255,6 +265,7 @@ static boolean LoadVulkanFunctions(void)
     VK_LOAD_INST(vkGetPhysicalDeviceSurfaceSupportKHR);
     VK_LOAD_INST(vkGetPhysicalDeviceSurfaceCapabilitiesKHR);
     VK_LOAD_INST(vkGetPhysicalDeviceSurfaceFormatsKHR);
+    VK_LOAD_INST(vkGetPhysicalDeviceSurfacePresentModesKHR);
     VK_LOAD_INST(vkDestroySurfaceKHR);
     VK_LOAD_DEV(vkCreateSwapchainKHR);
     VK_LOAD_DEV(vkDestroySwapchainKHR);
@@ -321,7 +332,8 @@ static boolean CreateVKWindow(void)
 
 // ------------------------------------------------------------------
 // Swapchain — mirrors examples/shader_demo/window_target.hpp:
-// B8G8R8A8_UNORM (SRGB_NONLINEAR) preferred, FIFO present, minImageCount+1,
+// B8G8R8A8_UNORM (SRGB_NONLINEAR) preferred, vk_present_mode (FIFO default),
+// minImageCount+1 (3 for MAILBOX),
 // COLOR_ATTACHMENT (+TRANSFER_SRC when available, for -vkcapture readback).
 // ------------------------------------------------------------------
 
@@ -349,6 +361,67 @@ static void DestroySwapchainObjects(void)
         vkDestroySwapchainKHR_(vk_ldevice, vk_swapchain, NULL);
         vk_swapchain = VK_NULL_HANDLE;
     }
+}
+
+// Present mode chosen for the live swapchain (resolved per creation;
+// the boot log names it). FIFO until the first CreateSwapchain runs.
+static VkPresentModeKHR vk_present_mode_resolved = VK_PRESENT_MODE_FIFO_KHR;
+
+// Config selector (vk_present_mode, see i_video_vk.h) -> VkPresentModeKHR.
+static VkPresentModeKHR RequestedPresentMode(void)
+{
+    switch (vk_present_mode)
+    {
+        case 1:  return VK_PRESENT_MODE_MAILBOX_KHR;
+        case 2:  return VK_PRESENT_MODE_IMMEDIATE_KHR;
+        case 3:  return VK_PRESENT_MODE_FIFO_RELAXED_KHR;
+        default: return VK_PRESENT_MODE_FIFO_KHR;
+    }
+}
+
+static const char *PresentModeName(VkPresentModeKHR mode)
+{
+    switch (mode)
+    {
+        case VK_PRESENT_MODE_IMMEDIATE_KHR:     return "IMMEDIATE";
+        case VK_PRESENT_MODE_MAILBOX_KHR:       return "MAILBOX";
+        case VK_PRESENT_MODE_FIFO_RELAXED_KHR:  return "FIFO_RELAXED";
+        case VK_PRESENT_MODE_FIFO_KHR:          return "FIFO";
+        default:                                return "?";
+    }
+}
+
+// Resolve the configured present mode against what the surface actually
+// supports. FIFO is the only mode the spec guarantees, so it is both
+// the default and the fallback; anything else the surface does not
+// list silently degrades to it (logged once per creation).
+static VkPresentModeKHR ResolvePresentMode(void)
+{
+    VkPresentModeKHR modes[8];
+    VkPresentModeKHR want = RequestedPresentMode();
+    uint32_t count = 8;
+    uint32_t i;
+    boolean have = false;
+
+    vkGetPhysicalDeviceSurfacePresentModesKHR_(vk_physical, vk_surface,
+                                               &count, modes);
+    for (i = 0; i < count && i < 8; ++i)
+    {
+        if (modes[i] == want)
+        {
+            have = true;
+            break;
+        }
+    }
+
+    if (!have && want != VK_PRESENT_MODE_FIFO_KHR)
+    {
+        I_LogPrintf("I_VK: present mode %s not supported on this surface "
+               "— FIFO fallback\n", PresentModeName(want));
+        want = VK_PRESENT_MODE_FIFO_KHR;
+    }
+
+    return want;
 }
 
 static boolean CreateSwapchain(void)
@@ -420,10 +493,21 @@ static boolean CreateSwapchain(void)
         usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;   // -vkcapture readback
     }
 
+    vk_present_mode_resolved = ResolvePresentMode();
+
     memset(&ci, 0, sizeof(ci));
     ci.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
     ci.surface = vk_surface;
     ci.minImageCount = caps.minImageCount + 1;
+    // MAILBOX only decouples acquire from present with a third image in
+    // flight (replace-queued-frames semantics); every surface that offers
+    // the mode allows at least 3 images, so the clamp below never fights
+    // it.
+    if (vk_present_mode_resolved == VK_PRESENT_MODE_MAILBOX_KHR
+        && ci.minImageCount < 3)
+    {
+        ci.minImageCount = 3;
+    }
     if (caps.maxImageCount > 0 && ci.minImageCount > caps.maxImageCount)
     {
         ci.minImageCount = caps.maxImageCount;
@@ -436,7 +520,7 @@ static boolean CreateSwapchain(void)
     ci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     ci.preTransform = caps.currentTransform;
     ci.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-    ci.presentMode = VK_PRESENT_MODE_FIFO_KHR;     // guaranteed everywhere
+    ci.presentMode = vk_present_mode_resolved;     // FIFO default, see ResolvePresentMode
     ci.clipped = VK_TRUE;
     ci.oldSwapchain = VK_NULL_HANDLE;
 
@@ -980,6 +1064,55 @@ void I_VK_FinishUpdate(void)
         {
             return;             // minimized — retry next frame
         }
+    }
+
+    // Frame limiter (vk_fps_cap / -vkfps): hold each present until the
+    // configured minimum interval has elapsed since the last accepted
+    // one. Millisecond-granular I_Sleep first, then a bounded busy-wait
+    // for the sub-millisecond tail — SDL_Delay rounds up to a scheduler
+    // tick, which alone would cost whole frames at 60+ caps. A cap above
+    // the natural rate is a no-op: the tic-coupled main loop only
+    // presents once per 35 Hz game tic, and FIFO already paces at the
+    // display refresh; the limiter binds when the rate would exceed the
+    // cap (low caps for GPU/battery relief, and the non-pacing
+    // MAILBOX/IMMEDIATE modes). Timed from the last accepted present, so
+    // swapchain-recreation frames (early returns above) do not eat into
+    // the budget.
+    if (vk_fps_cap > 0)
+    {
+        double min_us = 1000000.0 / (double) vk_fps_cap;
+        uint64_t now = SDL_GetPerformanceCounter();
+
+        if (vk_cap_last_pc != 0)
+        {
+            double elapsed_us = (double) (now - vk_cap_last_pc)
+                              * 1000000.0
+                              / (double) SDL_GetPerformanceFrequency();
+
+            if (elapsed_us < min_us)
+            {
+                int whole_ms = (int) ((min_us - elapsed_us) / 1000.0);
+
+                if (whole_ms > 0)
+                {
+                    I_Sleep(whole_ms);
+                }
+                for (;;)
+                {
+                    double left_us;
+
+                    now = SDL_GetPerformanceCounter();
+                    left_us = min_us - (double) (now - vk_cap_last_pc)
+                            * 1000000.0
+                            / (double) SDL_GetPerformanceFrequency();
+                    if (left_us <= 0.0)
+                    {
+                        break;
+                    }
+                }
+            }
+        }
+        vk_cap_last_pc = SDL_GetPerformanceCounter();
     }
 
     EnsureInputImage();
@@ -1615,11 +1748,18 @@ boolean I_VK_AttemptGraphics(void)
                vk_base_mult, VKFeedWidth(), feed_h,
                VKBaseWidth(), VKBaseHeight());
     }
-    I_LogPrintf("I_VK: feed %dx%d (%s), base %dx%d, swapchain %ux%u, present FIFO\n",
+    I_LogPrintf("I_VK: feed %dx%d (%s), base %dx%d, swapchain %ux%u, "
+           "present %s\n",
            VKFeedWidth(), feed_h,
            I_VK_AspectName(),
            VKBaseWidth(), VKBaseHeight(),
-           vk_swap_extent.width, vk_swap_extent.height);
+           vk_swap_extent.width, vk_swap_extent.height,
+           PresentModeName(vk_present_mode_resolved));
+    if (vk_fps_cap > 0)
+    {
+        I_LogPrintf("I_VK: frame limiter %d presents/s (min interval %.2f ms)\n",
+               vk_fps_cap, 1000.0 / vk_fps_cap);
+    }
 
     return true;
 }
