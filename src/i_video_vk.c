@@ -1760,6 +1760,11 @@ boolean I_VK_AttemptGraphics(void)
         I_LogPrintf("I_VK: frame limiter %d presents/s (min interval %.2f ms)\n",
                vk_fps_cap, 1000.0 / vk_fps_cap);
     }
+    if (vk_fps_cap > TICRATE)
+    {
+        I_LogPrintf("I_VK: cap above the 35 Hz tic rate; presentation "
+               "uncoupled from game logic (single player)\n");
+    }
 
     return true;
 }

@@ -32,10 +32,12 @@ extern char *shader_preset;
 
 // Frame limiter (config "vk_fps_cap" + -vkfps <n>): maximum presents per
 // second, 0 = off (default). Applied ahead of the swapchain, so it
-// composes with any present mode; a cap above the natural rate is a
-// no-op (the main loop presents once per 35 Hz game tic, and FIFO
-// paces at the display refresh). Vulkan path only; ignored by the
-// classic renderer.
+// composes with any present mode. Caps of 1..35 pace the whole loop
+// below the tic rate (game time dilates; nothing is skipped). A cap
+// above the 35 Hz tic rate uncouples presentation from game logic in
+// single player: the main loop re-presents the current state between
+// tics and this limiter paces it at the cap (netgames keep the vanilla
+// coupled loop). Vulkan path only; ignored by the classic renderer.
 extern int vk_fps_cap;
 
 // Swapchain present mode (config "vk_present_mode" + -vkpm <n>):

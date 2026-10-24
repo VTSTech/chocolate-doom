@@ -26,6 +26,7 @@
 #include "i_system.h"
 #include "i_timer.h"
 #include "i_video.h"
+#include "i_video_vk.h"
 
 #include "m_argv.h"
 #include "m_fixed.h"
@@ -703,6 +704,23 @@ void TryRunTics (void)
     lowtic = GetLowTic();
 
     availabletics = lowtic - gametic/ticdup;
+
+    // Uncapped presentation (vk_fps_cap above the 35 Hz tic rate,
+    // Vulkan path active, no netgame): never block waiting for the
+    // next local tic. If none is due yet, return so the caller
+    // renders and presents the current state again; the Vulkan
+    // frame limiter (vk_fps_cap) paces the loop instead. Netgames
+    // (including loopback -server hosts) keep the blocking wait
+    // below — clients must receive server tics to stay in sync.
+    // singletics never reaches this: BuildNewTic() above always
+    // leaves a tic available in that mode.
+    if (availabletics < 1
+     && vk_fps_cap > TICRATE
+     && I_VK_Active()
+     && !net_client_connected)
+    {
+        return;
+    }
 
     // decide how many tics to run
 

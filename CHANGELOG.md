@@ -24,12 +24,25 @@ matching).
   buffered, queued frames replaced), IMMEDIATE (may tear),
   FIFO_RELAXED — availability-checked against the surface with a
   silent FIFO fallback, and MAILBOX gets its third swapchain image so
-  replace-queued-frames semantics actually engage. A cap above the
-  natural rate is a no-op: the tic-coupled loop presents once per
-  35 Hz game tic and FIFO paces at the display refresh, so this paces
-  presentation only — game logic stays vanilla-locked. The boot log
-  names the resolved mode and any active limiter; the stats overlay's
-  fps row reflects the cap automatically.
+  replace-queued-frames semantics actually engage. Caps of 1..35 pace
+  the whole loop below the tic rate, so game time dilates rather than
+  skipping. The boot log names the resolved mode and any active
+  limiter; the stats overlay's fps row reflects the cap automatically.
+- **Presentation uncoupled from the 35 Hz game loop (`-vkfps` > 35).**
+  `TryRunTics()` used to spin-wait for the next tic on every main-loop
+  iteration, welding the present rate to the logic rate — so any cap
+  above 35 had nothing to pace. When the Vulkan presenter is live, the
+  cap exceeds TICRATE and no netgame is connected, an iteration with
+  no due tic now returns immediately and the frame limiter paces the
+  loop instead: `-vkfps 60` really presents ~60 fps (FIFO settles at
+  the display refresh; `-vkpm 1` MAILBOX skips queue latency), while
+  game logic stays vanilla-locked at 35 Hz. Frames between tics repeat
+  the current state — motion still advances 35 times per second — but
+  the shader chain and its per-frame uniforms now run at the present
+  rate, so animated CRT/LCD presets are visibly smoother. Netgames
+  (including loopback `-server` hosts) keep the blocking wait for
+  server tics; `singletics` / `-timedemo` are untouched. Smooth
+  in-between motion remains Tier 3 (view interpolation).
 - **The crash trap covers the CRT's silent leg.** A CRT call handed a
   bad argument (a bad `FILE *`, a bad mode, ...) does not raise an SEH
   exception and does not raise `SIGABRT` — release builds jump straight

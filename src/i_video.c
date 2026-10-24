@@ -1259,10 +1259,14 @@ void I_GraphicsCheckCommandLine(void)
     //
     // Cap the Vulkan presenter at this many presents per second
     // (0 = off, the default). Applied ahead of the swapchain, so it
-    // also throttles MAILBOX and IMMEDIATE present modes; a cap above
-    // the natural rate (~35 fps, one present per game tic, vsynced by
-    // FIFO) is a no-op. Low caps trade responsiveness for GPU load /
-    // battery (e.g. -vkfps 30). Vulkan path only.
+    // also throttles MAILBOX and IMMEDIATE present modes. Caps of
+    // 1..35 pace the whole loop below the tic rate (game time dilates,
+    // nothing is skipped). A cap above the tic rate (~35 fps) uncouples
+    // presentation from game logic in single player: up to <fps>
+    // presents per second while the game keeps running at 35 Hz
+    // (e.g. -vkfps 60; pair with -vkpm 1 for lowest latency). Low caps
+    // trade responsiveness for GPU load / battery (e.g. -vkfps 30).
+    // Vulkan path only.
     //
 
     i = M_CheckParmWithArgs("-vkfps", 1);
