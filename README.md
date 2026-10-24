@@ -18,7 +18,7 @@ engine. With the feature off (or on any failure), the games behave
 exactly like upstream Chocolate Doom. See [README-VK.md](README-VK.md)
 for the full details, and [CHANGELOG.md](CHANGELOG.md) for what is new.
 
-<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/a9d9d150-0a0c-4650-b1ca-f75e8c4b0e6e" />
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/11604b42-1da0-43b2-b9cf-82af8c105e80" />
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/a4400020-7b63-4643-af74-61f0b040d1f7" />
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/7584b0fd-3010-47bd-859c-ac25cde76c3c" />
 
