@@ -11,6 +11,15 @@ matching).
 
 ## [3.0.3] - 2026-10-24
 
+The third point release: the dedicated server becomes a diagnosable
+program — a console it actually writes to, a crash trap that files a
+report, a boot log that records how far boot got, a `--help`, and a
+banner that names its build and UDP port — the GUI games answer
+`--version` from a terminal at last, the shader browser climbs
+folders in all four games, and the MSYS2 build links the server
+again. Cut with one known issue still open (below): the server's
+bare-run crash on Windows.
+
 ### Added
 - **The server answers `--help`.** The stripped-down dedicated-server
   entry point had lost upstream's usage block, so `--help` fell
@@ -27,8 +36,6 @@ matching).
   flushes every line — a server that still dies instantly and
   silently is diagnosed by its last line; the crash trap writes the
   exception report there too.
-
-### Added
 - **The shader browser climbs folders.** The SHADERS menu in all four
   games now walks one folder at a time instead of flat-listing a
   merged scan: subfolder rows render as `NAME/`, Enter descends into
@@ -46,11 +53,17 @@ matching).
   case-insensitive glob machinery.
 
 ### Fixed
-- **The version string says what the tags say.** `3.0.2` was tagged
-  with the build files still reading 3.0.1, so every binary
-  self-reported 3.0.1; `project()`/`AC_INIT` now carry 3.0.3 and the
-  server banner prints the full `PACKAGE_STRING` so the build an exe
-  came from is always answerable.
+- **chocolate-server is no longer a silent black box on Windows.**
+  Upstream's 2018 blanket "apply WIN32 to executables" built the
+  dedicated server as a GUI-subsystem binary — no console, so its
+  banner and every diagnostic printf went nowhere; a double-clicked
+  server ran (or died) invisibly. The server is now a console app (a
+  console window it actually writes to), its stdout is line-buffered
+  so redirected output survives a kill, and the startup banner names
+  the UDP port it will bind (`-port`, default 2342, echoed back; a
+  bind failure was already an `I_Error` box) plus the
+  `-privateserver` note. Verified in-sandbox: the server boots,
+  prints the banner through a pipe, and serves until killed.
 - **chocolate-server survives its own crashes with a report.** A
   Windows-native fault (access violation, heap-corruption abort, ...)
   killed the console-subsystem server instantly and silently — a
@@ -71,17 +84,11 @@ matching).
   them, so a refused WSAStartup or an allocation failure names its
   stage in an `I_Error` instead of dying downstream with no hint
   networking never came up.
-- **chocolate-server is no longer a silent black box on Windows.**
-  Upstream's 2018 blanket "apply WIN32 to executables" built the
-  dedicated server as a GUI-subsystem binary — no console, so its
-  banner and every diagnostic printf went nowhere; a double-clicked
-  server ran (or died) invisibly. The server is now a console app (a
-  console window it actually writes to), its stdout is line-buffered
-  so redirected output survives a kill, and the startup banner names
-  the UDP port it will bind (`-port`, default 2342, echoed back; a
-  bind failure was already an `I_Error` box) plus the
-  `-privateserver` note. Verified in-sandbox: the server boots,
-  prints the banner through a pipe, and serves until killed.
+- **The version string says what the tags say.** `3.0.2` was tagged
+  with the build files still reading 3.0.1, so every binary
+  self-reported 3.0.1; `project()`/`AC_INIT` now carry 3.0.3 and the
+  server banner prints the full `PACKAGE_STRING` so the build an exe
+  came from is always answerable.
 - **MSYS2 (MinGW) builds link the server again.** The MSYS2 CI job
   died at `chocolate-server.exe` with `undefined reference to
   SDL_main`: `CMAKE_FIND_PACKAGE_PREFER_CONFIG` (default On) makes
@@ -101,6 +108,18 @@ matching).
   the printf attribute is now `gnu_printf` under MinGW
   (`doomtype.h`, `textscreen/txt_main.h`), which knows the full C99
   set.
+
+### Known issues
+- **The server's bare-run instant crash on Windows is still open.**
+  The new boot log narrows it to a handful of lines: `main` is
+  entered, `D_DoomMain` is entered, the crash trap installs — and the
+  log stops there. The next stage sits behind two argv scans and a
+  `setvbuf` that have no business crashing, and neither the exception
+  filter nor the `SIGABRT` handler filed a report — which fits the
+  uncatchable class of deaths: `0xC0000409` fastfail, taken by design
+  by the MSVC release CRT's `abort()` and invalid-parameter paths.
+  One number narrows it further: `$LASTEXITCODE` from the PowerShell
+  run, read immediately after the process dies.
 
 ## [3.0.2] - 2026-10-23
 
