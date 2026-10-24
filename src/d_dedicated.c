@@ -24,6 +24,7 @@
 #include "m_misc.h"
 #include "net_defs.h"
 
+#include "d_dedicated.h"
 #include "net_dedicated.h"
 #include "net_server.h"
 #include "z_zone.h"
@@ -65,6 +66,11 @@ static LONG WINAPI DED_CrashFilter(EXCEPTION_POINTERS *info)
                     (unsigned long) code, DED_ExceptionText(code), addr);
     fflush(stderr);
 
+    // The boot log is the copy that survives even if the console output
+    // was lost — write it before anything else can go wrong.
+    DED_BootLog("CRASH: fatal exception 0x%08lX (%s) at %p",
+                (unsigned long) code, DED_ExceptionText(code), addr);
+
     M_snprintf(msgbuf, sizeof(msgbuf),
                "Fatal exception 0x%08lX (%s)\n"
                "at address %p\n\n"
@@ -88,6 +94,8 @@ static void DED_AbortHandler(int sig)
     fprintf(stderr, "chocolate-server: abort() (signal %d) — usually heap "
                     "corruption or a failed CRT check\n", sig);
     fflush(stderr);
+    DED_BootLog("CRASH: abort() (signal %d) — usually heap corruption "
+                "or a failed CRT check", sig);
     MessageBoxA(NULL, "abort() called — usually heap corruption or a "
                       "failed CRT check. See console output.",
                       "chocolate-server crashed", MB_OK | MB_ICONERROR);
@@ -99,6 +107,67 @@ static void DED_AbortHandler(int sig)
 // "-port" the same way); duplicated here so the startup banner can show
 // what will actually be opened. Keep the two in sync.
 #define DED_DEFAULT_PORT 2342
+
+// The boot log file, opened lazily by DED_BootLog on first use.
+static FILE *bootlog;
+
+void DED_BootLog(const char *fmt, ...)
+{
+    va_list argptr;
+
+    if (bootlog == NULL)
+    {
+        // exedir is set by M_SetExeDir() in main() before D_DoomMain()
+        // runs, so the log lands next to the exe the user actually
+        // launched; fall back to the working directory when that is
+        // not writable. "w" truncates per run — this is a boot report,
+        // not an ongoing server log (that is what -netlog is for).
+        if (exedir != NULL)
+        {
+            char *path = M_StringJoin(exedir, "chocolate-server.log", NULL);
+            bootlog = M_fopen(path, "w");
+            free(path);
+        }
+        if (bootlog == NULL)
+        {
+            bootlog = M_fopen("chocolate-server.log", "w");
+        }
+    }
+
+    if (bootlog == NULL)
+    {
+        // Nowhere writable to put it; the console still carries the
+        // banner, so the happy path does not depend on this file.
+        return;
+    }
+
+    va_start(argptr, fmt);
+    vfprintf(bootlog, fmt, argptr);
+    va_end(argptr);
+    fputc('\n', bootlog);
+
+    // Every line must survive whatever kills us next.
+    fflush(bootlog);
+}
+
+static void DED_PrintUsage(void)
+{
+    // Upstream's d_server.c printed a usage block for --help; this
+    // fork's stripped-down entry point lost it somewhere along the
+    // way, leaving --help to fall through into normal startup.
+    printf("Usage: %s [options]\n\n"
+           "Chocolate Doom VK standalone dedicated server. Game options\n"
+           "(IWAD, mods, skill, ...) belong to the first player who joins\n"
+           "the server, not to the server itself.\n\n"
+           "Options:\n"
+           "  -port <n>        UDP port to listen on (default %i)\n"
+           "  -privateserver   don't register with the global master server\n"
+           "  -netlog <file>   write a packet-level debug log to <file>\n"
+           "  -nogui           suppress GUI popups for fatal errors\n"
+           "  --version        print version and exit\n"
+           "  --help           print this message and exit\n",
+           M_GetExecutableName(), DED_DEFAULT_PORT);
+}
 
 void NET_CL_Run(void)
 {
@@ -121,7 +190,17 @@ void D_DoomMain(void)
     // uncatchable — that one stays a plain instant death by design.
     SetUnhandledExceptionFilter(DED_CrashFilter);
     signal(SIGABRT, DED_AbortHandler);
+    DED_BootLog("boot: crash trap installed");
 #endif
+
+    // --help needs handling BEFORE anything else: with no handler it
+    // used to fall through into normal startup, so asking for help
+    // looked exactly like the mystery instant crash.
+    if (M_ParmExists("--help") || M_ParmExists("-help"))
+    {
+        DED_PrintUsage();
+        exit(0);
+    }
 
     // The console is the dedicated server's whole UI, so make sure it
     // actually says something. Line-buffered stdout keeps the banner
@@ -130,8 +209,13 @@ void D_DoomMain(void)
     // take its whole buffered log with it (the per-line-flush rule the
     // gpu-scaler.log batch introduced for the same reason).
     setvbuf(stdout, NULL, _IOLBF, 0);
+    DED_BootLog("boot: console ready");
 
-    printf(PACKAGE_NAME " standalone dedicated server\n");
+    // PACKAGE_STRING ("Chocolate Doom VK 3.0.3"), not the bare package
+    // name: the banner is the fastest possible answer to "which build
+    // is this exe actually from" — the question the 3.0.1/3.0.2
+    // version-string confusion made painfully relevant.
+    printf(PACKAGE_STRING " standalone dedicated server\n");
 
     // Mirror NET_SDL_InitServer's -port parsing so the banner names
     // the port that is about to be bound (or was refused).
@@ -142,8 +226,10 @@ void D_DoomMain(void)
     }
     printf("Listening on UDP port %i (change with -port;"
            " -privateserver skips the master server)\n", port);
+    DED_BootLog("boot: banner printed (UDP port %i)", port);
 
     Z_Init();
+    DED_BootLog("boot: zone allocator initialized");
 
     NET_DedicatedServer();
 }

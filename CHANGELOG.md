@@ -9,7 +9,24 @@ Versions: this repository's release tags (`v3` ships as package
 version `3.0.0`; point releases tag as `3.0.<n>`, package version
 matching).
 
-## [Unreleased]
+## [3.0.3] - 2026-10-24
+
+### Added
+- **The server answers `--help`.** The stripped-down dedicated-server
+  entry point had lost upstream's usage block, so `--help` fell
+  through into normal startup — indistinguishable from the mystery
+  instant crash. It now prints options (`-port`, `-privateserver`,
+  `-netlog`, `-nogui`, `--version`, `--help`) and exits.
+- **`chocolate-doom.exe --version` finally prints something.** The
+  games are GUI-subsystem executables whose stdout belongs to no
+  console, so version/help output from a PowerShell or CMD launch
+  vanished. They now attach the parent console just for those
+  arguments (double-clicked launches stay quiet like a GUI app).
+- **Boot-stage log for the server.** `chocolate-server.log` (next to
+  the exe, working directory as fallback) records each boot step and
+  flushes every line — a server that still dies instantly and
+  silently is diagnosed by its last line; the crash trap writes the
+  exception report there too.
 
 ### Added
 - **The shader browser climbs folders.** The SHADERS menu in all four
@@ -29,6 +46,11 @@ matching).
   case-insensitive glob machinery.
 
 ### Fixed
+- **The version string says what the tags say.** `3.0.2` was tagged
+  with the build files still reading 3.0.1, so every binary
+  self-reported 3.0.1; `project()`/`AC_INIT` now carry 3.0.3 and the
+  server banner prints the full `PACKAGE_STRING` so the build an exe
+  came from is always answerable.
 - **chocolate-server survives its own crashes with a report.** A
   Windows-native fault (access violation, heap-corruption abort, ...)
   killed the console-subsystem server instantly and silently — a

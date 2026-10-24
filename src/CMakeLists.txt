@@ -14,7 +14,7 @@ set(COMMON_SOURCE_FILES
 # Dedicated server (chocolate-server):
 
 set(DEDSERV_FILES
-    d_dedicated.c
+    d_dedicated.c        d_dedicated.h
     d_iwad.c            d_iwad.h
     d_mode.c            d_mode.h
     deh_str.c           deh_str.h
