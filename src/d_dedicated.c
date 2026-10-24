@@ -255,18 +255,29 @@ void D_DoomMain(void)
     }
 
     // Statement-level breadcrumb: past the arg scan, before setvbuf —
-    // the two CRT calls this gap contains are the bare-run crash
-    // window, and "args parsed" present-but-nothing-else pins setvbuf.
+    // this was the window the bare-run crash hid in, and "args parsed"
+    // being the last stage is what pinned it to the setvbuf call below.
     DED_BootLog("boot: args parsed");
 
     // The console is the dedicated server's whole UI, so make sure it
-    // actually says something. Line-buffered stdout keeps the banner
-    // (and anything after it) visible when the output is redirected to
-    // a file or a pipe — without this, a killed or crashed server can
-    // take its whole buffered log with it (the per-line-flush rule the
+    // actually says something. Unbuffered stdout keeps the banner (and
+    // anything after it) visible when the output is redirected to a
+    // file or a pipe, and a killed or crashed server cannot take its
+    // whole buffered log with it (the per-line-flush rule the
     // gpu-scaler.log batch introduced for the same reason).
-    setvbuf(stdout, NULL, _IOLBF, 0);
-    DED_BootLog("boot: stdout line-buffered");
+    //
+    // This call used to ask for _IOLBF with a zero size. The C standard
+    // lets the CRT pick a size when the buffer pointer is null, and
+    // glibc does — but the UCRT documents and enforces 2 <= size <=
+    // INT_MAX for buffered modes, and its release build enforces it via
+    // the no-info invalid-parameter path, which jumps straight to
+    // __fastfail (0xC0000409): the exact instant, silent death the
+    // crash trap was built to catch — and caught. The UCRT never
+    // line-buffers anyway (its _IOLBF is full buffering under the
+    // hood), so unbuffered is the only mode that actually delivers
+    // per-statement visibility on every platform.
+    setvbuf(stdout, NULL, _IONBF, 0);
+    DED_BootLog("boot: stdout unbuffered");
     DED_BootLog("boot: console ready");
 
     // PACKAGE_STRING ("Chocolate Doom VK 3.0.3"), not the bare package

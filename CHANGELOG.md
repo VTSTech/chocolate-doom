@@ -23,8 +23,28 @@ matching).
   message box, and exits with code 4 (3 = abort; GS-cookie and
   range-check fastfails stay uncatchable by OS design, so
   `$LASTEXITCODE` still arbitrates those). The boot log also gained
-  two stages — `args parsed` and `stdout line-buffered` — so the next
-  crash log pins the killer down to a single CRT call.
+  two stages — `args parsed` and `stdout unbuffered` — and that is
+  what closed the case: the user's next crash log ended at
+  `args parsed`.
+
+### Fixed
+- **The server's bare-run instant crash on Windows: found, understood,
+  fixed.** The killer was the server's own startup line
+  `setvbuf(stdout, NULL, _IOLBF, 0)`. The C standard lets the CRT pick
+  a size when the buffer pointer is null, and glibc honors that; the
+  UCRT instead documents and enforces `2 <= size <= INT_MAX` for
+  buffered modes, and its release build enforces it through the
+  no-info invalid-parameter path — no SEH exception, no SIGABRT, a
+  straight `0xC0000409` fastfail out of the process. That is the
+  instant, silent death the crash trap and boot log were built for:
+  the boot log's last stage pinned the call, and the trap's new leg
+  caught the validation red-handed (`CRASH: CRT invalid parameter (?
+  in ?, ?:0)` — the `?`s are the UCRT saying it has no details in
+  release). The fix asks for unbuffered output instead: `_IONBF`
+  needs no size, so the validation cannot fire, and it is the only
+  mode the UCRT actually delivers per-statement visibility with (its
+  `_IOLBF` is full buffering in disguise) — the property the original
+  call was after in the first place.
 
 ## [3.0.3] - 2026-10-24
 

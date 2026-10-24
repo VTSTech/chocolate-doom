@@ -120,8 +120,12 @@ The highest-value one, and the one worth an issue before the PR.
      renamed. That exact failure is what breaks MSYS2 server links;
      MSVC console exes never reference `WinMain`, so only MinGW shows
      it. Both toolchains proven in this fork's CI.
-  4. Line-buffered stdout (`setvbuf`) so banner and diagnostics
-     survive redirection and kills; banner names the UDP port.
+  4. Unbuffered stdout (`setvbuf(stdout, NULL, _IONBF, 0)`) so banner
+     and diagnostics survive redirection and kills; banner names the
+     UDP port. (A caution learned the hard way while debugging this
+     fork: `setvbuf` with a buffered mode and size 0 — which glibc
+     accepts — is documented-invalid on the UCRT and release builds
+     fastfail on it. Use `_IONBF` or a real size.)
 - **Open questions for upstream** (go in the issue): the original
   intent of the blanket WIN32 commit (games' console-flash avoidance —
   the server needs carving out, not reverting); autotools parity on
