@@ -787,6 +787,28 @@ static default_t extra_defaults_list[] =
     CONFIG_VARIABLE_INT(vkstats),
 
     //!
+    // Maximum number of Vulkan presents per second (frame limiter).
+    // 0 = off, the default: the main loop presents once per 35 Hz game
+    // tic and the swapchain's present mode paces at the display
+    // refresh, so a cap above the natural rate is a no-op. Low caps
+    // (e.g. 30) trade responsiveness for GPU load / battery life, and
+    // are the throttle the non-pacing present modes need. See also
+    // vk_present_mode. (Chocolate Doom VK)
+    //
+
+    CONFIG_VARIABLE_INT(vk_fps_cap),
+
+    //!
+    // Vulkan swapchain present mode: 0 = FIFO (default, vsync),
+    // 1 = MAILBOX (triple buffered, queued frames replaced), 2 =
+    // IMMEDIATE (no pacing, may tear), 3 = FIFO_RELAXED (vsync except
+    // when a frame is late). Modes the surface does not support fall
+    // back to FIFO. See also vk_fps_cap. (Chocolate Doom VK)
+    //
+
+    CONFIG_VARIABLE_INT(vk_present_mode),
+
+    //!
     // If non-zero, the screen will have smooth scaling.
     //
 
