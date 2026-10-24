@@ -11,6 +11,19 @@ matching).
 
 ## [Unreleased]
 
+## [3.0.4] - 2026-10-24
+
+The Vulkan presenter gets frame-pacing controls: a presents-per-second
+limiter (`vk_fps_cap` / `-vkfps`) that can throttle below the tic rate
+for GPU load / battery relief or — above 35 — uncouple presentation
+from the 35 Hz game loop entirely, plus a swapchain present-mode
+selector (`vk_present_mode` / `-vkpm`, availability-checked with FIFO
+fallback). The 3.0.3 known issue is closed: the dedicated server's
+bare-run instant crash on Windows (the UCRT rejecting `setvbuf`'s
+line-buffered mode), and the crash trap now also covers the CRT's
+silent invalid-parameter fastfail path. Every CI artifact now carries
+its commit.
+
 ### Added
 - **Frame limiter + present mode selection for the Vulkan presenter.**
   `vk_fps_cap` / `-vkfps <n>` holds each present until a minimum

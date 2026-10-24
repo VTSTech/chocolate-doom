@@ -1,4 +1,4 @@
-AC_INIT(Chocolate Doom VK, 3.0.3,
+AC_INIT(Chocolate Doom VK, 3.0.4,
         https://github.com/VTSTech/chocolate-doom-vk/issues, chocolate-doom)
 
 PACKAGE_SHORTNAME=${PACKAGE_NAME% Doom VK}
